@@ -1,0 +1,57 @@
+use crate::ast::*;
+
+grammar;
+
+// Sep<S, T>: Vec<T> = {
+//     <mut v:(<T> S)*> <e:T?> => match e {
+//         None => v,
+//         Some(e) => {
+//             v.push(e);
+//             v
+//         }
+//     }
+// };
+Sep<S, T>: Vec<T> = {
+    <mut xs:(<T> S)*> <x:T> => {
+        xs.push(x);
+        xs
+    }
+};
+
+pub Document: Document<'input> = <name:Protocol> <types:Types> <knowledge:Knowledge> <actions:Actions> <goals:Goals> =>
+    Document { <> };
+
+Protocol: Ident<'input> = "Protocol" ":" <Ident>;
+
+Types: Vec<(TypesKey, Vec<Ident<'input>>)> = "Types" ":" <Sep<";", (TypesKey Sep<",", Ident>)>>;
+TypesKey: TypesKey = {
+    "Agent"         => TypesKey::Agent,
+    "Number"        => TypesKey::Number,
+    "Symmetric_key" => TypesKey::SymmetricKey,
+    "Public_key"    => TypesKey::PublicKey,
+    "Function"      => TypesKey::Function,
+};
+
+Knowledge: Knowledge<'input> = "Knowledge" ":" <agents:Sep<";", (<Ident> ":" <Sep<",",Message>>)>> => Knowledge { <> };
+
+Actions: Vec<Action<'input>> = "Actions" ":" <Action*>;
+Action: Action<'input> =
+    <to:Ident> "->" <from:Ident> ":" <msgs:Sep<",", Message>> => Action { <> };
+
+Goals: Vec<Goal<'input>> = "Goals" ":" <Goal*>;
+
+Flag<T>: bool = T? => <>.is_some();
+
+Goal: Goal<'input> = {
+    <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <msgs:Sep<",", Message>> =>
+        Goal::Authenticates { <> },
+    <msg:Message> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
+        Goal::SecretBetween { <> },
+};
+
+Message: Message<'input> = {
+    <Ident> => Message::Var(<>),
+    <Ident> "(" <Sep<",", Message>> ")" => Message::Fun(<>),
+};
+
+Ident: Ident<'input> = r"[a-zA-Z_][a-zA-Z_0-9]*" => Ident(<>);
