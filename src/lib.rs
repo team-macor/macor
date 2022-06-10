@@ -1,5 +1,7 @@
 use logos::Logos;
 
+mod dolev_yao;
+
 #[derive(Logos, Debug, PartialEq)]
 enum Token<'a> {
     #[token("Protocol")]
