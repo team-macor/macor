@@ -1,0 +1,69 @@
+{
+  "scopeName": "source.macor",
+  "patterns": [{ "include": "#expression" }],
+  "repository": {
+    "expression": {
+      "patterns": [
+        { "include": "#keywords" },
+        { "include": "#control" },
+        { "include": "#operator" },
+        { "include": "#variable" },
+        { "include": "#constant" },
+
+        { "include": "#builtin" },
+        { "include": "#grouper" },
+        { "include": "#punctuation" },
+        { "include": "#comment" }
+      ]
+    },
+    "keywords": {
+      "match": "\\b(Agent|Symmetric_key|Function|authenticates|on|secret|between|weakly)\\b",
+      "name": "entity.name.function.member"
+    },
+    "control": {
+      "match": "\\b(Protocol|Types|Knowledge|Actions|Goals)\\b",
+      "name": "keyword.control.untitled"
+    },
+    "operator": {
+      "match": "->",
+      "name": "keyword.operator"
+    },
+    "variable": {
+      "match": "[A-Z][a-zA-Z_]*",
+      "name": "variable"
+    },
+    "constant": {
+      "match": "[a-z][a-zA-Z_]*",
+      "name": "support.constant"
+    },
+
+    "builtin": {
+      "match": "\\b(exp)\\b",
+      "name": "constant.language"
+    },
+    "grouper": {
+      "match": "\\(|\\)|\\[|\\]|\\{|\\}|\\{\\||\\|\\}|_",
+      "name": "punctuation.separator"
+    },
+    "punctuation": {
+      "match": ",|\\.|;|:",
+      "name": "punctuation.separator"
+    },
+    "paren-expression": {
+      "begin": "\\(",
+      "end": "\\)",
+      "beginCaptures": {
+        "0": { "name": "punctuation.paren.open" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.paren.close" }
+      },
+      "name": "expression.group",
+      "patterns": [{ "include": "#expression" }]
+    },
+    "comment": {
+      "match": "#.*",
+      "name": "comment.line"
+    }
+  }
+}
