@@ -1,10 +1,13 @@
-/// stuff that might be improved:
-/// * dont use string everywhere.
-/// * can the clones be omitted?
-/// * algorithmic improvements to avoid some of the nested loops (look at composition search)
-/// * box/dereferences are ugly
-/// * macro for tests
-/// * should the new_messages variable be some kind of set and then check distjoint
+#![allow(dead_code)]
+
+//! Stuff that might be improved:
+//! - [ ] Don't use `String` everywhere.
+//! - [ ] Can the `clone`s be omitted?
+//! - [ ] Algorithmic improvements to avoid some of the nested loops (look at composition search).
+//! - [ ] Box/dereferences are ugly.
+//!     - Someone can try converting to [`box_syntax`](https://doc.rust-lang.org/beta/unstable-book/language-features/box-syntax.html).
+//! - [ ] Macro for tests.
+//! - [ ] Should the `new_messages` variable be some kind of set and then check disjoint.
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct Func(String);
