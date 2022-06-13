@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Document<'a> {
     pub name: Ident<'a>,
     pub types: Vec<(TypesKey, Vec<Ident<'a>>)>,
@@ -9,7 +9,7 @@ pub struct Document<'a> {
     pub goals: Vec<Goal<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypesKey {
     Agent,
     Number,
@@ -18,7 +18,7 @@ pub enum TypesKey {
     Function,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Goal<'a> {
     Authenticates {
         a: Ident<'a>,
@@ -33,8 +33,14 @@ pub enum Goal<'a> {
     },
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Ident<'a>(pub &'a str);
+
+impl<'a> std::fmt::Debug for Ident<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl<'a> Deref for Ident<'a> {
     type Target = str;
@@ -44,20 +50,22 @@ impl<'a> Deref for Ident<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Message<'a> {
     Var(Ident<'a>),
     Fun(Ident<'a>, Vec<Message<'a>>),
+    SymEnc(Vec<Message<'a>>, Box<Message<'a>>),
+    AsymEnc(Vec<Message<'a>>, Box<Message<'a>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Action<'a> {
     pub from: Ident<'a>,
     pub to: Ident<'a>,
     pub msgs: Vec<Message<'a>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Knowledge<'a> {
     pub agents: Vec<(Ident<'a>, Vec<Message<'a>>)>,
 }

@@ -2,6 +2,40 @@ use crate::ast::*;
 
 grammar;
 
+match {
+    r"\s*" => { }, // The default whitespace skipping is disabled an `ignore pattern` is specified
+    r"#[^\n\r]*[\n\r]*" => { }, // Skip `#` comments
+
+    r"[a-zA-Z_][a-zA-Z_0-9]*",
+
+    "->",
+    ",",
+    ";",
+    ":",
+    "(",
+    ")",
+    "{",
+    "}",
+    "{|",
+    "|}",
+    "Protocol",
+    "Types",
+    "Knowledge",
+    "Actions",
+    "Goals",
+    "Agent",
+    "Symmetric_key",
+    "Function",
+    "Number",
+    "Public_key",
+    "authenticates",
+    "on",
+    "secret",
+    "between",
+    "weakly",
+    "guessable"
+}
+
 // Sep<S, T>: Vec<T> = {
 //     <mut v:(<T> S)*> <e:T?> => match e {
 //         None => v,
@@ -52,6 +86,10 @@ Goal: Goal<'input> = {
 Message: Message<'input> = {
     <Ident> => Message::Var(<>),
     <Ident> "(" <Sep<",", Message>> ")" => Message::Fun(<>),
+    "{|" <msgs:Sep<",", Message>> "|}" <key:Message> => Message::SymEnc(msgs, Box::new(key)),
+    "{" <msgs:Sep<",", Message>> "}" <key:Message> => Message::AsymEnc(msgs, Box::new(key))
+
+
 };
 
 Ident: Ident<'input> = r"[a-zA-Z_][a-zA-Z_0-9]*" => Ident(<>);
