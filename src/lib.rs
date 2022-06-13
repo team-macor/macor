@@ -1,7 +1,9 @@
-#![feature(box_syntax)]
+#![feature(box_syntax, never_type)]
 
 pub mod ast;
-mod dolev_yao;
+pub mod dolev_yao;
 pub mod parse;
+pub mod protocol;
+pub mod search;
 
 pub use parse::parse_document;

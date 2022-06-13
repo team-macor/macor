@@ -1,5 +1,10 @@
 #![feature(box_syntax)]
 
+use macor::{
+    protocol::Protocol,
+    search::{SearchOptions, Searcher},
+};
+
 fn main() -> miette::Result<()> {
     miette::set_hook(box |_| {
         box miette::MietteHandlerOpts::new()
@@ -12,7 +17,12 @@ fn main() -> miette::Result<()> {
     let src = std::fs::read_to_string(std::env::args().nth(1).unwrap()).unwrap();
     let parsed = macor::parse_document(&src)?;
 
-    dbg!(parsed);
+    let protocol = Protocol::new(parsed);
+    let searcher = Searcher::new(protocol);
+
+    let attack = searcher.find_attack(SearchOptions { num_sessions: 1 });
+
+    println!("{attack:#?}");
 
     Ok(())
 }
