@@ -40,6 +40,14 @@ pub struct Packet {
     messages: Vec<Message>,
 }
 
+impl PartialEq for Packet {
+    fn eq(&self, other: &Self) -> bool {
+        todo!("perform unification on packets?")
+    }
+}
+
+impl Eq for Packet {}
+
 impl FromIterator<Message> for Packet {
     fn from_iter<T: IntoIterator<Item = Message>>(iter: T) -> Self {
         Packet {
@@ -173,7 +181,7 @@ impl Execution {
         let mut next = vec![];
 
         for (i_ses, ses) in self.sessions.iter().enumerate() {
-            for (actor_key, actor) in &ses.actors {
+            for (actor_key, actor) in ses.actors.iter() {
                 let mut new_execution = self.clone();
                 let new_actor = new_execution.sessions[i_ses]
                     .actors
@@ -181,12 +189,17 @@ impl Execution {
                     .unwrap();
 
                 match &actor.strand.messages[actor.strand.current_execution] {
-                    PacketPattern::Ingoing(_) => {
+                    PacketPattern::Ingoing(packet_pattern) => {
                         // TODO: Can intruder send?
 
-                        match actor.inbox.pop_front() {
-                            Some(packet) => {}
-                            None => todo!(),
+                        if let Some(packet) = new_actor.inbox.pop_front() {
+                            //
+                            if packet_pattern == &packet {
+                                new_actor.strand.current_execution += 1;
+                                for msg in packet {
+                                    new_actor.strand.knowledge.augment_with(msg);
+                                }
+                            }
                         }
                         todo!("check that inbox can match ingoing message")
                     }
@@ -213,6 +226,13 @@ impl Execution {
                                 .unwrap()
                                 .inbox
                                 .push_back(new_packet);
+
+                            new_execution.sessions[i_ses]
+                                .actors
+                                .get_mut(target)
+                                .unwrap()
+                                .strand
+                                .current_execution += 1;
 
                             next.push(new_execution);
                         } else {

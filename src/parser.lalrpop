@@ -55,9 +55,9 @@ Sep<S, T>: Vec<T> = {
 pub Document: Document<'input> = <name:Protocol> <types:Types> <knowledge:Knowledge> <actions:Actions> <goals:Goals> =>
     Document { <> };
 
-Protocol: Ident<'input> = "Protocol" ":" <Ident>;
+Protocol: Ident<&'input str> = "Protocol" ":" <Ident>;
 
-Types: Vec<(TypesKey, Vec<Ident<'input>>)> = "Types" ":" <Sep<";", (TypesKey Sep<",", Ident>)>>;
+Types: Vec<(TypesKey, Vec<Ident<&'input str>>)> = "Types" ":" <Sep<";", (TypesKey Sep<",", Ident>)>>;
 TypesKey: TypesKey = {
     "Agent"         => TypesKey::Agent,
     "Number"        => TypesKey::Number,
@@ -91,4 +91,4 @@ pub Message: Message<'input> = {
     "{"  <msgs:Sep<",", Message>>  "}" <key:Message> => Message::AsymEnc(msgs, Box::new(key))
 };
 
-Ident: Ident<'input> = r"[a-zA-Z_][a-zA-Z_0-9]*" => Ident(<>);
+Ident: Ident<&'input str> = <l:@L> <i:r"[a-zA-Z_][a-zA-Z_0-9]*"> <r:@R> => Ident(i, (l, r - l).into());

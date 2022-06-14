@@ -121,16 +121,16 @@ mod tests {
 
         let doc = parse_document(KEY_EX1)?;
 
-        assert_eq!(&*doc.name, "KeyEx");
+        assert_eq!(doc.name.as_str(), "KeyEx");
         assert_eq!(doc.types.len(), 3);
         assert_eq!(doc.actions.len(), 3);
         assert_eq!(doc.goals.len(), 3);
         assert_eq!(doc.knowledge.agents.len(), 3);
-        assert_eq!(&*doc.knowledge.agents[0].0, "A");
+        assert_eq!(doc.knowledge.agents[0].0.as_str(), "A");
         assert_eq!(doc.knowledge.agents[0].1.len(), 4);
-        assert_eq!(&*doc.knowledge.agents[1].0, "B");
+        assert_eq!(doc.knowledge.agents[1].0.as_str(), "B");
         assert_eq!(doc.knowledge.agents[1].1.len(), 4);
-        assert_eq!(&*doc.knowledge.agents[2].0, "s");
+        assert_eq!(doc.knowledge.agents[2].0.as_str(), "s");
         assert_eq!(doc.knowledge.agents[2].1.len(), 5);
 
         Ok(())

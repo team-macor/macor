@@ -1,5 +1,5 @@
 use crate::{
-    ast, dolev_yao,
+    ast,
     protocol::{Func, Message, Stage, TypedStage, UntypedStage},
 };
 
@@ -41,9 +41,14 @@ impl<S: Stage> FromIterator<Message<S>> for Knowledge<S> {
     }
 }
 
-impl<'a> From<Vec<ast::Message<'a>>> for Knowledge<UntypedStage> {
+impl<'a> From<&[ast::Message<'a>]> for Knowledge<UntypedStage<'a>> {
+    fn from(knowledge: &[ast::Message<'a>]) -> Self {
+        Self::new(knowledge.iter().cloned().map(Message::from).collect())
+    }
+}
+impl<'a> From<Vec<ast::Message<'a>>> for Knowledge<UntypedStage<'a>> {
     fn from(knowledge: Vec<ast::Message<'a>>) -> Self {
-        Self(knowledge.into_iter().map(Message::from).collect())
+        Self::new(knowledge.into_iter().map(Message::from).collect())
     }
 }
 
@@ -104,6 +109,12 @@ pub fn augment_knowledge<S: Stage>(knowledge: &mut Knowledge<S>, public_function
         new_messages.retain(|message| !knowledge.0.contains(message));
 
         if new_messages.is_empty() {
+            knowledge.0.retain(|m| match m {
+                Message::Tuple(_) => false,
+                _ => true,
+            });
+            knowledge.0.sort_unstable();
+            knowledge.0.dedup();
             return;
         }
 
@@ -140,11 +151,7 @@ mod tests {
                 .unwrap()
                 .into(); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
-        assert!(composition_search(
-            &knowledge,
-            &goal,
-            &[Func("h".to_string())]
-        ));
+        assert!(composition_search(&knowledge, &goal, &[Func("h".into())]));
     }
 
     #[test]
@@ -160,11 +167,7 @@ mod tests {
                 .unwrap()
                 .into();
 
-        assert!(!composition_search(
-            &knowledge,
-            &goal,
-            &[Func("h".to_string())]
-        ));
+        assert!(!composition_search(&knowledge, &goal, &[Func("h".into())]));
     }
 
     #[test]
@@ -178,11 +181,7 @@ mod tests {
 
         let knowledge: Knowledge<UntypedStage> = parse_messages("k1, k2").unwrap().into();
 
-        assert!(!composition_search(
-            &knowledge,
-            &goal,
-            &[Func("h".to_string())]
-        ));
+        assert!(!composition_search(&knowledge, &goal, &[Func("h".into())]));
     }
 
     #[test]
@@ -195,7 +194,7 @@ mod tests {
             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3")
                 .unwrap()
                 .into();
-        augment_knowledge(&mut knowledge, &[Func("h".to_string())]);
+        augment_knowledge(&mut knowledge, &[Func("h".into())]);
 
         assert_eq!(
             knowledge,
@@ -208,7 +207,7 @@ mod tests {
             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3 ")
                 .unwrap()
                 .into();
-        augment_knowledge(&mut knowledge, &[Func("h".to_string())]);
+        augment_knowledge(&mut knowledge, &[Func("h".into())]);
 
         assert_eq!(
             knowledge,

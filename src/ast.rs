@@ -1,9 +1,7 @@
-use std::ops::Deref;
-
 #[derive(Debug, Clone)]
 pub struct Document<'a> {
-    pub name: Ident<'a>,
-    pub types: Vec<(TypesKey, Vec<Ident<'a>>)>,
+    pub name: Ident<&'a str>,
+    pub types: Vec<(TypesKey, Vec<Ident<&'a str>>)>,
     pub knowledge: Knowledge<'a>,
     pub actions: Vec<Action<'a>>,
     pub goals: Vec<Goal<'a>>,
@@ -21,51 +19,118 @@ pub enum TypesKey {
 #[derive(Debug, Clone)]
 pub enum Goal<'a> {
     Authenticates {
-        a: Ident<'a>,
-        b: Ident<'a>,
+        a: Ident<&'a str>,
+        b: Ident<&'a str>,
         msgs: Vec<Message<'a>>,
         weakly: bool,
     },
     SecretBetween {
         msg: Message<'a>,
-        agents: Vec<Ident<'a>>,
+        agents: Vec<Ident<&'a str>>,
         guessable: bool,
     },
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct Ident<'a>(pub &'a str);
+#[derive(Clone)]
+pub struct Ident<S>(pub S, pub miette::SourceSpan);
 
-impl<'a> std::fmt::Debug for Ident<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+impl<T> Ident<T> {
+    pub fn span(&self) -> miette::SourceSpan {
+        self.1
+    }
+    pub fn convert<S>(&self) -> Ident<S>
+    where
+        T: Into<S> + Clone,
+    {
+        Ident(self.0.clone().into(), self.1)
+    }
+    pub fn as_str(&self) -> &str
+    where
+        T: AsRef<str>,
+    {
+        self.as_ref()
+    }
+    pub fn is_constant(&self) -> bool
+    where
+        T: AsRef<str>,
+    {
+        self.as_str().starts_with(|c: char| c.is_lowercase())
+    }
+    pub fn is_variable(&self) -> bool
+    where
+        T: AsRef<str>,
+    {
+        !self.is_constant()
     }
 }
 
-impl<'a> Deref for Ident<'a> {
-    type Target = str;
+impl<S: std::hash::Hash> std::hash::Hash for Ident<S> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
 
-    fn deref(&self) -> &Self::Target {
-        self.0
+impl<S: Ord> Ord for Ident<S> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl<S: PartialOrd> PartialOrd for Ident<S> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl<S: PartialEq> PartialEq for Ident<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+impl<S: Eq> Eq for Ident<S> {}
+
+impl<S: AsRef<str>> std::fmt::Debug for Ident<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.as_ref())
+    }
+}
+impl<S: AsRef<str>> std::fmt::Display for Ident<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.as_ref())
+    }
+}
+impl<S: AsRef<str>> AsRef<str> for Ident<S> {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+impl<'a> From<&'a str> for Ident<&'a str> {
+    fn from(s: &'a str) -> Self {
+        Ident(s, (0, 0).into())
+    }
+}
+impl<'a> From<&'a str> for Ident<String> {
+    fn from(s: &'a str) -> Self {
+        Ident(s.to_string(), (0, 0).into())
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message<'a> {
-    Var(Ident<'a>),
-    Fun(Ident<'a>, Vec<Message<'a>>),
+    Var(Ident<&'a str>),
+    Fun(Ident<&'a str>, Vec<Message<'a>>),
     SymEnc(Vec<Message<'a>>, Box<Message<'a>>),
     AsymEnc(Vec<Message<'a>>, Box<Message<'a>>),
 }
 
 #[derive(Debug, Clone)]
 pub struct Action<'a> {
-    pub from: Ident<'a>,
-    pub to: Ident<'a>,
+    pub from: Ident<&'a str>,
+    pub to: Ident<&'a str>,
     pub msgs: Vec<Message<'a>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Knowledge<'a> {
-    pub agents: Vec<(Ident<'a>, Vec<Message<'a>>)>,
+    pub agents: Vec<(Ident<&'a str>, Vec<Message<'a>>)>,
 }

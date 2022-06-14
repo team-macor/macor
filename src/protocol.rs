@@ -1,7 +1,9 @@
-use std::{collections::HashMap, hash::Hash};
+use std::{collections::HashMap, hash::Hash, marker::PhantomData};
+
+use miette::SourceSpan;
 
 use crate::{
-    ast,
+    ast::{self, Ident},
     dolev_yao::{self, Knowledge},
     search::Packet,
 };
@@ -12,11 +14,13 @@ pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + H
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct UntypedStage;
+pub struct UntypedStage<'s> {
+    _data: PhantomData<&'s ()>,
+}
 
-impl Stage for UntypedStage {
+impl<'a> Stage for UntypedStage<'a> {
     type Constant = !;
-    type Variable = String;
+    type Variable = Ident<&'a str>;
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
@@ -28,7 +32,7 @@ impl Stage for TypedStage {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct ActorName(String);
+pub struct ActorName(Ident<String>);
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub u32);
@@ -41,7 +45,7 @@ pub enum InstanceName {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct Func(pub String);
+pub struct Func(pub Ident<String>);
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Message<S: Stage = TypedStage> {
@@ -64,12 +68,12 @@ pub enum Message<S: Stage = TypedStage> {
     Exp(Box<Message<S>>),
 }
 
-impl<'a> From<ast::Message<'a>> for Message<UntypedStage> {
+impl<'a> From<ast::Message<'a>> for Message<UntypedStage<'a>> {
     fn from(message: ast::Message<'a>) -> Self {
         match message {
-            ast::Message::Var(var) => Self::Variable(var.to_string()),
+            ast::Message::Var(var) => Self::Variable(var.clone()),
             ast::Message::Fun(name, args) => Self::Composition {
-                func: Func(name.0.to_string()),
+                func: Func(name.convert()),
                 args: args.into_iter().map(Message::from).collect(),
             },
             ast::Message::SymEnc(messages, key) => Self::SymEnc {
@@ -118,8 +122,8 @@ impl Knowledge<TypedStage> {
     }
 }
 
-impl Knowledge<UntypedStage> {
-    pub fn to_typed(&self, ctx: &TypingContext) -> Knowledge<TypedStage> {
+impl Knowledge<UntypedStage<'_>> {
+    pub fn to_typed(&self, ctx: &mut TypingContext) -> Knowledge<TypedStage> {
         self.iter().map(|message| message.to_typed(ctx)).collect()
     }
 }
@@ -127,8 +131,8 @@ impl Knowledge<UntypedStage> {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Variable {
     Actor(ActorName),
-    SymmetricKey(String),
-    Number(String),
+    SymmetricKey(Ident<String>),
+    Number(Ident<String>),
 }
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Constant {
@@ -149,50 +153,119 @@ pub enum Type {
     Function,
 }
 
+#[derive(Debug, thiserror::Error, miette::Diagnostic, Clone)]
+pub enum TypingError {
+    #[error("Symmetric key {name} cannot be constant")]
+    #[diagnostic()]
+    ConstantSymmetricKey {
+        #[source_code]
+        src: String,
+        name: String,
+        #[label("This symmetric key must have an uppercase name")]
+        err_span: SourceSpan,
+    },
+    #[error("Nonce '{name}' cannot be constant")]
+    #[diagnostic()]
+    ConstantNonce {
+        #[source_code]
+        src: String,
+        name: String,
+        #[label("This nonce must have an uppercase name")]
+        err_span: SourceSpan,
+    },
+    #[error("Function {name} cannot be variable")]
+    #[diagnostic()]
+    FunctionAsVariable {
+        #[source_code]
+        src: String,
+        name: String,
+        #[label("This function must be lowercase")]
+        err_span: SourceSpan,
+    },
+    #[error(
+        "The {} {name} has not been given a type",
+        if name.starts_with(|c: char| c.is_lowercase()) { "constant" } else { "variable" }
+    )]
+    #[diagnostic()]
+    NotDeclared {
+        #[source_code]
+        src: String,
+        name: String,
+        #[label("All variables and constant must have been given a type")]
+        err_span: SourceSpan,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct TypingContext {
+    src: String,
     types: HashMap<String, Type>,
+    errors: Vec<TypingError>,
 }
 impl TypingContext {
     pub fn lookup(&self, name: &str) -> Option<Type> {
         self.types.get(name).cloned()
     }
+
+    fn src(&self) -> String {
+        format!("{}\n", self.src)
+    }
 }
 
-impl Message<UntypedStage> {
-    fn to_typed(&self, ctx: &TypingContext) -> Message<TypedStage> {
+impl Message<UntypedStage<'_>> {
+    fn to_typed(&self, ctx: &mut TypingContext) -> Message {
         match self {
             Message::Variable(name) => {
-                let is_constant = name
-                    .chars()
-                    .next()
-                    .expect("Empty variable not supported")
-                    .is_lowercase();
+                let is_constant = name.is_constant();
 
-                if let Some(ty) = ctx.lookup(name) {
+                if let Some(ty) = ctx.lookup(name.as_str()) {
                     match ty {
                         Type::Agent => {
                             if is_constant {
-                                Message::Variable(Variable::Actor(ActorName(name.clone())))
+                                Message::Variable(Variable::Actor(ActorName(name.convert())))
                             } else {
-                                Message::Constant(Constant::Actor(ActorName(name.clone())))
+                                Message::Constant(Constant::Actor(ActorName(name.convert())))
                             }
                         }
                         Type::SymmetricKey => {
-                            assert!(!is_constant, "symmetric keys '{name}' cannot be constant");
-                            Message::Variable(Variable::SymmetricKey(name.clone()))
+                            if name.is_constant() {
+                                ctx.errors.push(TypingError::ConstantSymmetricKey {
+                                    src: ctx.src(),
+                                    name: name.to_string(),
+                                    err_span: name.span(),
+                                });
+                            }
+                            Message::Variable(Variable::SymmetricKey(name.convert()))
                         }
                         Type::Number => {
-                            assert!(!is_constant, "numbers '{name}' cannot be constant");
-                            Message::Variable(Variable::Number(name.clone()))
+                            if name.is_constant() {
+                                ctx.errors.push(TypingError::ConstantNonce {
+                                    src: ctx.src(),
+                                    name: name.to_string(),
+                                    err_span: name.span(),
+                                });
+                            }
+                            Message::Variable(Variable::Number(name.convert()))
                         }
                         Type::Function => {
-                            assert!(is_constant, "functions '{name}' cannot be variable");
-                            Message::Constant(Constant::Function(Func(name.clone())))
+                            if name.is_variable() {
+                                ctx.errors.push(TypingError::FunctionAsVariable {
+                                    src: ctx.src(),
+                                    name: name.to_string(),
+                                    err_span: name.span(),
+                                });
+                            }
+                            Message::Constant(Constant::Function(Func(name.convert())))
                         }
                     }
                 } else {
-                    panic!("name {name} not found in {ctx:?}")
+                    // panic!("name {name} not found in {ctx:?}");
+                    ctx.errors.push(TypingError::NotDeclared {
+                        src: ctx.src(),
+                        name: name.to_string(),
+                        err_span: name.span(),
+                    });
+                    Message::Variable(Variable::Actor(ActorName(name.convert())))
                 }
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
@@ -318,8 +391,57 @@ pub struct Protocol {
 }
 
 impl Protocol {
-    pub fn new(document: ast::Document) -> Protocol {
-        let ctx = TypingContext {
+    fn new_protocol_actor(
+        agent: &Ident<&str>,
+        knowledge: &[ast::Message],
+        ctx: &mut TypingContext,
+        document: &ast::Document,
+    ) -> ProtocolActor {
+        let k: Knowledge<UntypedStage> = knowledge.into();
+
+        ProtocolActor {
+            name: ActorName(agent.convert()),
+            kind: if agent.is_constant() {
+                ActorKind::Constant
+            } else {
+                ActorKind::Variable
+            },
+            initial_knowledge: k.to_typed(ctx),
+            messages: document
+                .actions
+                .iter()
+                .filter_map(|a| {
+                    if &a.from == agent {
+                        Some(PacketPattern::Outgoing(
+                            if a.to.is_constant() {
+                                Recipient::Instance(InstanceName::Constant(ActorName(
+                                    a.to.convert(),
+                                )))
+                            } else {
+                                Recipient::Variable(ActorName(a.to.convert()))
+                            },
+                            a.msgs
+                                .iter()
+                                .map(|m| Message::<UntypedStage>::from(m.clone()).to_typed(ctx))
+                                .collect(),
+                        ))
+                    } else if &a.to == agent {
+                        Some(PacketPattern::Ingoing(
+                            a.msgs
+                                .iter()
+                                .map(|m| Message::<UntypedStage>::from(m.clone()).to_typed(ctx))
+                                .collect(),
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    pub fn new(src: String, document: ast::Document) -> Result<Protocol, Vec<TypingError>> {
+        let mut ctx = TypingContext {
             types: document
                 .types
                 .iter()
@@ -335,64 +457,26 @@ impl Protocol {
                     xs.iter().map(move |x| (x.to_string(), ty))
                 })
                 .collect(),
+            errors: Vec::new(),
+            src,
         };
 
         let actors = document
             .knowledge
             .agents
             .iter()
-            .map(|(agent, knowledge)| -> ProtocolActor {
-                let k: Knowledge<UntypedStage> = knowledge.clone().into();
-
-                ProtocolActor {
-                    name: ActorName(agent.to_string()),
-                    kind: if agent.starts_with(|c: char| c.is_lowercase()) {
-                        ActorKind::Constant
-                    } else {
-                        ActorKind::Variable
-                    },
-                    initial_knowledge: k.to_typed(&ctx),
-                    messages: document
-                        .actions
-                        .iter()
-                        .filter_map(|a| {
-                            if &a.from == agent {
-                                Some(PacketPattern::Outgoing(
-                                    if a.to.starts_with(|c: char| c.is_lowercase()) {
-                                        Recipient::Instance(InstanceName::Constant(ActorName(
-                                            a.to.to_string(),
-                                        )))
-                                    } else {
-                                        Recipient::Variable(ActorName(a.to.to_string()))
-                                    },
-                                    a.msgs
-                                        .iter()
-                                        .map(|m| {
-                                            Message::<UntypedStage>::from(m.clone()).to_typed(&ctx)
-                                        })
-                                        .collect(),
-                                ))
-                            } else if &a.to == agent {
-                                Some(PacketPattern::Ingoing(
-                                    a.msgs
-                                        .iter()
-                                        .map(|m| {
-                                            Message::<UntypedStage>::from(m.clone()).to_typed(&ctx)
-                                        })
-                                        .collect(),
-                                ))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
-                }
+            .map(|(agent, knowledge)| {
+                Self::new_protocol_actor(agent, knowledge, &mut ctx, &document)
             })
             .collect();
 
-        Protocol {
-            actors,
-            goals: vec![],
+        if ctx.errors.is_empty() {
+            Ok(Protocol {
+                actors,
+                goals: vec![],
+            })
+        } else {
+            Err(ctx.errors)
         }
     }
 }

@@ -1,0 +1,42 @@
+Protocol: TLS_1_3
+
+# Very simplified model
+
+Types: Agent A,B,s;
+       Number NA,NB,X,Y,DATAA;
+       Function pk,clientK,serverK,kdf,h,g,mac,data,pw
+
+Knowledge:
+    A: A,B,pk(A),pk(s),inv(pk(A)),{A,pk(A)}inv(pk(s)),clientK,serverK,kdf,g,h,mac,data,pw(A,B);
+    B: A,B,pk(B),pk(s),inv(pk(B)),{B,pk(B)}inv(pk(s)),clientK,serverK,kdf,g,h,mac,data,pw(A,B)
+
+Actions:
+
+A->B:
+  # Client Hello
+  A,exp(g,X)
+B->A:
+  # Server Hello
+  exp(g,Y)
+  # k1 := clientK(exp(exp(g,X),Y))
+  # k2 := serverK(exp(exp(g,X),Y))
+  # Server Certificate {| {B,pk(B)}inv(pk(s)) |}k2
+  , {| {B,pk(B)}inv(pk(s)) |}  serverK(exp(exp(g,X),Y))
+  # Server Certificate Verification / Finished {| {h(exp(g,X),exp(g,Y))}inv(pk(B)) |}k2
+  , {| {h(exp(g,X),exp(g,Y))}inv(pk(B)) |}serverK(exp(exp(g,X),Y))
+A->B:
+  # Client Finished {|h(exp(g,X),exp(g,Y))|}k1
+  {|h(exp(g,X),exp(g,Y))|}clientK(exp(exp(g,X),Y))
+  # Client send Data  {| DATA_A |}k1
+  , {| data,DATAA,pw(A,B) |}clientK(exp(exp(g,X),Y))
+B->A:
+  # Server send Data {| DATA_B |}k2
+  {| data,DATAB |}serverK(exp(exp(g,X),Y))
+
+
+Goals:
+
+  B authenticates A on DATAA
+  A authenticates B on DATAB
+  DATAA secret between A,B
+  DATAB secret between A,B
