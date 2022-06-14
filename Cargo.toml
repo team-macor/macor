@@ -9,6 +9,7 @@ edition = "2021"
 lalrpop = { version = "0.19.8", features = ["lexer"] }
 
 [dependencies]
+itertools = "0.10.3"
 lalrpop-util = { version = "0.19.8", features = ["lexer"] }
 logos = "0.12.1"
 miette = { version = "4.7.1", features = ["fancy"] }

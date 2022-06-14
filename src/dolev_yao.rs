@@ -1,4 +1,51 @@
-use crate::protocol::{Func, Knowledge, Message, Stage};
+use crate::{
+    ast, dolev_yao,
+    protocol::{Func, Message, Stage, TypedStage, UntypedStage},
+};
+
+#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+pub struct Knowledge<S: Stage = TypedStage>(Vec<Message<S>>);
+
+impl<S: Stage> Knowledge<S> {
+    pub fn new(mut msgs: Vec<Message<S>>) -> Self {
+        msgs.sort_unstable();
+        msgs.dedup();
+
+        let mut k = Knowledge(msgs);
+
+        augment_knowledge(&mut k, &[]);
+
+        k
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Message<S>> {
+        self.0.iter()
+    }
+
+    pub fn augment_with(&mut self, msg: Message<S>) {
+        self.0.push(msg);
+        self.0.sort_unstable();
+        self.0.dedup();
+
+        augment_knowledge(self, &[]);
+    }
+}
+impl<S: Stage> FromIterator<Knowledge<S>> for Knowledge<S> {
+    fn from_iter<T: IntoIterator<Item = Knowledge<S>>>(iter: T) -> Self {
+        let mut xs: Vec<_> = iter.into_iter().flat_map(|x| x.0).collect();
+        Knowledge::new(xs)
+    }
+}
+impl<S: Stage> FromIterator<Message<S>> for Knowledge<S> {
+    fn from_iter<T: IntoIterator<Item = Message<S>>>(iter: T) -> Self {
+        Knowledge::new(iter.into_iter().collect())
+    }
+}
+
+impl<'a> From<Vec<ast::Message<'a>>> for Knowledge<UntypedStage> {
+    fn from(knowledge: Vec<ast::Message<'a>>) -> Self {
+        Self(knowledge.into_iter().map(Message::from).collect())
+    }
+}
 
 pub fn composition_search<S: Stage>(
     knowledge: &Knowledge<S>,
@@ -12,7 +59,14 @@ pub fn composition_search<S: Stage>(
                     .iter()
                     .all(|arg| composition_search(knowledge, arg, public_functions))
         }
-        _ => knowledge.0.contains(goal),
+        _ => {
+            if knowledge.0.contains(goal) {
+                true
+            } else {
+                dbg!(goal);
+                false
+            }
+        }
     }
 }
 
@@ -20,7 +74,7 @@ pub fn augment_knowledge<S: Stage>(knowledge: &mut Knowledge<S>, public_function
     loop {
         let mut new_messages = Vec::new();
 
-        for message in &knowledge.0 {
+        for message in knowledge.iter() {
             match message {
                 Message::SymEnc { message, key } => {
                     if composition_search(knowledge, key, public_functions) {
@@ -60,7 +114,10 @@ pub fn augment_knowledge<S: Stage>(knowledge: &mut Knowledge<S>, public_function
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::UntypedStage;
+    use crate::{
+        parse::{parse_message, parse_messages},
+        protocol::UntypedStage,
+    };
 
     #[test]
     fn simple_composition_slides_example() {
@@ -76,35 +133,12 @@ mod tests {
            M |- h(k_1, k_2)
         */
 
-        let goal: Message<UntypedStage> = Message::Composition {
-            func: Func("h".to_string()),
-            args: vec![
-                Message::Variable("k1".to_string()),
-                Message::Variable("k2".to_string()),
-            ],
-        }; // h(k_1, k_2)
+        let goal: Message<UntypedStage> = parse_message("h(k1, k2)").unwrap().into();
 
-        let knowledge = Knowledge(vec![
-            Message::Variable("k1".to_string()),
-            Message::Variable("k2".to_string()),
-            Message::SymEnc {
-                message: Box::new(Message::Tuple(vec![
-                    Message::Variable("n1".to_string()),
-                    Message::Variable("k3".to_string()),
-                ])),
-                key: Box::new(Message::Composition {
-                    func: Func("h".to_string()),
-                    args: vec![
-                        Message::Variable("k1".to_string()),
-                        Message::Variable("k2".to_string()),
-                    ],
-                }),
-            },
-            Message::SymEnc {
-                message: Box::new(Message::Variable("n2".to_string())),
-                key: Box::new(Message::Variable("k3".to_string())),
-            },
-        ]); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+        let knowledge: Knowledge<UntypedStage> =
+            parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3")
+                .unwrap()
+                .into(); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
         assert!(composition_search(
             &knowledge,
@@ -119,36 +153,12 @@ mod tests {
            init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
            goal: h(k_1, k_3)
         */
+        let goal: Message<UntypedStage> = parse_message("h(k1, k3)").unwrap().into();
 
-        let goal: Message<UntypedStage> = Message::Composition {
-            func: Func("h".to_string()),
-            args: vec![
-                Message::Variable("k1".to_string()),
-                Message::Variable("k3".to_string()),
-            ],
-        }; // h(k_1, k_2)
-
-        let knowledge = Knowledge(vec![
-            Message::Variable("k1".to_string()),
-            Message::Variable("k2".to_string()),
-            Message::SymEnc {
-                message: Box::new(Message::Tuple(vec![
-                    Message::Variable("n1".to_string()),
-                    Message::Variable("k3".to_string()),
-                ])),
-                key: Box::new(Message::Composition {
-                    func: Func("h".to_string()),
-                    args: vec![
-                        Message::Variable("k1".to_string()),
-                        Message::Variable("k2".to_string()),
-                    ],
-                }),
-            },
-            Message::SymEnc {
-                message: Box::new(Message::Variable("n2".to_string())),
-                key: Box::new(Message::Variable("k3".to_string())),
-            },
-        ]); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+        let knowledge: Knowledge<UntypedStage> =
+            parse_messages("k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3")
+                .unwrap()
+                .into();
 
         assert!(!composition_search(
             &knowledge,
@@ -164,19 +174,9 @@ mod tests {
            pub: h
            goal: f(k_1, k_2)
         */
+        let goal: Message<UntypedStage> = parse_message("f(k1, k2)").unwrap().into();
 
-        let goal: Message<UntypedStage> = Message::Composition {
-            func: Func("f".to_string()),
-            args: vec![
-                Message::Variable("k1".to_string()),
-                Message::Variable("k2".to_string()),
-            ],
-        }; // h(k_1, k_3)
-
-        let knowledge = Knowledge(vec![
-            Message::Variable("k1".to_string()),
-            Message::Variable("k2".to_string()),
-        ]); // {k1, k2}
+        let knowledge: Knowledge<UntypedStage> = parse_messages("k1, k2").unwrap().into();
 
         assert!(!composition_search(
             &knowledge,
@@ -191,60 +191,30 @@ mod tests {
            init knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
            final knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3, <n1, k3>, n1, k3, n2 }
         */
-        let mut knowledge = Knowledge::<UntypedStage>(vec![
-            Message::Variable("k1".to_string()),
-            Message::Variable("k2".to_string()),
-            Message::SymEnc {
-                message: Box::new(Message::Tuple(vec![
-                    Message::Variable("n1".to_string()),
-                    Message::Variable("k3".to_string()),
-                ])),
-                key: Box::new(Message::Composition {
-                    func: Func("h".to_string()),
-                    args: vec![
-                        Message::Variable("k1".to_string()),
-                        Message::Variable("k2".to_string()),
-                    ],
-                }),
-            },
-            Message::SymEnc {
-                message: Box::new(Message::Variable("n2".to_string())),
-                key: Box::new(Message::Variable("k3".to_string())),
-            },
-        ]); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
-
+        let mut knowledge: Knowledge<UntypedStage> =
+            parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3")
+                .unwrap()
+                .into();
         augment_knowledge(&mut knowledge, &[Func("h".to_string())]);
 
         assert_eq!(
             knowledge,
-            Knowledge(vec![
-                Message::Variable("k1".to_string()),
-                Message::Variable("k2".to_string()),
-                Message::SymEnc {
-                    message: Box::new(Message::Tuple(vec![
-                        Message::Variable("n1".to_string()),
-                        Message::Variable("k3".to_string()),
-                    ])),
-                    key: Box::new(Message::Composition {
-                        func: Func("h".to_string()),
-                        args: vec![
-                            Message::Variable("k1".to_string()),
-                            Message::Variable("k2".to_string()),
-                        ],
-                    }),
-                },
-                Message::SymEnc {
-                    message: Box::new(Message::Variable("n2".to_string())),
-                    key: Box::new(Message::Variable("k3".to_string())),
-                },
-                Message::Tuple(vec![
-                    Message::Variable("n1".to_string()),
-                    Message::Variable("k3".to_string()),
-                ]),
-                Message::Variable("n1".to_string()),
-                Message::Variable("k3".to_string()),
-                Message::Variable("n2".to_string()),
-            ])
+            parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, n1, k3, n1, k3, n2")
+                .unwrap()
+                .into()
+        );
+
+        let mut knowledge: Knowledge<UntypedStage> =
+            parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3 ")
+                .unwrap()
+                .into();
+        augment_knowledge(&mut knowledge, &[Func("h".to_string())]);
+
+        assert_eq!(
+            knowledge,
+            parse_messages("k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3, n1, k3, n1, k3, n2")
+                .unwrap()
+                .into()
         );
     }
 }

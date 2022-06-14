@@ -76,14 +76,15 @@ Goals: Vec<Goal<'input>> = "Goals" ":" <Goal*>;
 
 Flag<T>: bool = T? => <>.is_some();
 
-Goal: Goal<'input> = {
+pub Goal: Goal<'input> = {
     <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <msgs:Sep<",", Message>> =>
         Goal::Authenticates { <> },
     <msg:Message> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
         Goal::SecretBetween { <> },
 };
 
-Message: Message<'input> = {
+pub Messages: Vec<Message<'input>> = Sep<",", Message>;
+pub Message: Message<'input> = {
     <Ident> => Message::Var(<>),
     <Ident> "(" <Sep<",", Message>> ")" => Message::Fun(<>),
     "{|" <msgs:Sep<",", Message>> "|}" <key:Message> => Message::SymEnc(msgs, Box::new(key)),

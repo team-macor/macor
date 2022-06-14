@@ -1,7 +1,7 @@
 use lalrpop_util::lalrpop_mod;
 use miette::SourceSpan;
 
-use crate::ast::Document;
+use crate::ast::{Document, Message};
 
 lalrpop_mod!(parser);
 
@@ -81,6 +81,26 @@ pub fn parse_document(src: &str) -> Result<Document, ParseError> {
     match PARSER.parse(src) {
         Ok(p) => Ok(p),
         Err(e) => Err(ParseError::new(src, e)),
+    }
+}
+
+pub fn parse_message(arg: &str) -> Result<Message, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::MessageParser> =
+        once_cell::sync::Lazy::new(parser::MessageParser::new);
+
+    match PARSER.parse(arg) {
+        Ok(p) => Ok(p),
+        Err(e) => Err(ParseError::new(arg, e)),
+    }
+}
+
+pub fn parse_messages(arg: &str) -> Result<Vec<Message>, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::MessagesParser> =
+        once_cell::sync::Lazy::new(parser::MessagesParser::new);
+
+    match PARSER.parse(arg) {
+        Ok(p) => Ok(p),
+        Err(e) => Err(ParseError::new(arg, e)),
     }
 }
 

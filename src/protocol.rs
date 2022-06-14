@@ -1,6 +1,10 @@
 use std::{collections::HashMap, hash::Hash};
 
-use crate::ast;
+use crate::{
+    ast,
+    dolev_yao::{self, Knowledge},
+    search::Packet,
+};
 
 pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash {
     type Constant: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash;
@@ -60,29 +64,6 @@ pub enum Message<S: Stage = TypedStage> {
     Exp(Box<Message<S>>),
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct Knowledge<S: Stage = TypedStage>(pub Vec<Message<S>>);
-
-impl<S: Stage> FromIterator<Knowledge<S>> for Knowledge<S> {
-    fn from_iter<T: IntoIterator<Item = Knowledge<S>>>(iter: T) -> Self {
-        let mut xs: Vec<_> = iter.into_iter().flat_map(|x| x.0).collect();
-        xs.sort_unstable();
-        xs.dedup();
-        Knowledge(xs)
-    }
-}
-impl<S: Stage> FromIterator<Message<S>> for Knowledge<S> {
-    fn from_iter<T: IntoIterator<Item = Message<S>>>(iter: T) -> Self {
-        Knowledge(iter.into_iter().collect())
-    }
-}
-
-impl<'a> From<Vec<ast::Message<'a>>> for Knowledge<UntypedStage> {
-    fn from(knowledge: Vec<ast::Message<'a>>) -> Self {
-        Self(knowledge.into_iter().map(Message::from).collect())
-    }
-}
-
 impl<'a> From<ast::Message<'a>> for Message<UntypedStage> {
     fn from(message: ast::Message<'a>) -> Self {
         match message {
@@ -114,30 +95,32 @@ impl Knowledge<TypedStage> {
         to: InstanceName,
     ) -> Knowledge<TypedStage> {
         let messages = self
-            .0
             .iter()
             .map(|message| message.substitute_actor_instance(from, to.clone()))
             .collect();
-        Knowledge(messages)
+        Knowledge::new(messages)
     }
 
     pub fn init_all_actors(&self, session_id: SessionId) -> Knowledge {
-        Knowledge(
-            self.0
-                .iter()
+        Knowledge::new(
+            self.iter()
                 .map(|msg| msg.init_all_actors(session_id))
                 .collect(),
         )
     }
 
-    pub fn can_construct(&self, _msg: &Message) -> bool {
-        todo!()
+    pub fn can_verify(&self, msg: &Message) -> bool {
+        self.can_construct(msg)
+    }
+    pub fn can_construct(&self, msg: &Message) -> bool {
+        // NOTE: Assume that augment_knowledge has already been called :)
+        dolev_yao::composition_search(self, msg, &[])
     }
 }
 
 impl Knowledge<UntypedStage> {
     pub fn to_typed(&self, ctx: &TypingContext) -> Knowledge<TypedStage> {
-        self.0.iter().map(|message| message.to_typed(ctx)).collect()
+        self.iter().map(|message| message.to_typed(ctx)).collect()
     }
 }
 
@@ -152,7 +135,11 @@ pub enum Constant {
     Actor(ActorName),
     Instance(InstanceName),
     Function(Func),
+    Nonce(Nonce),
 }
+
+#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+pub struct Nonce(pub u32);
 
 #[derive(Debug, Clone, Copy)]
 pub enum Type {
@@ -162,7 +149,7 @@ pub enum Type {
     Function,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TypingContext {
     types: HashMap<String, Type>,
 }
@@ -299,9 +286,9 @@ pub enum Recipient {
 }
 
 #[derive(Debug, Clone)]
-pub enum MessagePattern {
-    Ingoing(Vec<Message>),
-    Outgoing(Recipient, Vec<Message>),
+pub enum PacketPattern {
+    Ingoing(Packet),
+    Outgoing(Recipient, Packet),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -310,21 +297,21 @@ pub enum ActorKind {
     Constant,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProtocolActor {
     pub name: ActorName,
     pub kind: ActorKind,
     pub initial_knowledge: Knowledge,
-    pub messages: Vec<MessagePattern>,
+    pub messages: Vec<PacketPattern>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Goal {
     SecretBetween(Message),
     Authenticates(Message),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Protocol {
     pub actors: Vec<ProtocolActor>,
     pub goals: Vec<Goal>,
@@ -370,7 +357,7 @@ impl Protocol {
                         .iter()
                         .filter_map(|a| {
                             if &a.from == agent {
-                                Some(MessagePattern::Outgoing(
+                                Some(PacketPattern::Outgoing(
                                     if a.to.starts_with(|c: char| c.is_lowercase()) {
                                         Recipient::Instance(InstanceName::Constant(ActorName(
                                             a.to.to_string(),
@@ -386,7 +373,7 @@ impl Protocol {
                                         .collect(),
                                 ))
                             } else if &a.to == agent {
-                                Some(MessagePattern::Ingoing(
+                                Some(PacketPattern::Ingoing(
                                     a.msgs
                                         .iter()
                                         .map(|m| {
