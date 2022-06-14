@@ -17,7 +17,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(Agent|Symmetric_key|Function|authenticates|on|secret|between|weakly)\\b",
+      "match": "\\b(Agent|Symmetric_key|Function|Number|authenticates|on|secret|between|weakly)\\b",
       "name": "entity.name.function.member"
     },
     "control": {

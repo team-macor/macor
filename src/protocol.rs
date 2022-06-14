@@ -269,6 +269,7 @@ impl Message<UntypedStage<'_>> {
                 }
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
+            // TODO: Check that func is defined as a function
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args.iter().map(|x| x.to_typed(ctx)).collect(),
