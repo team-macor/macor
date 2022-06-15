@@ -34,31 +34,31 @@ pub enum Goal<'a> {
 #[derive(Clone)]
 pub struct Ident<S>(pub S, pub miette::SourceSpan);
 
-impl<T> Ident<T> {
+impl<S> Ident<S> {
     pub fn span(&self) -> miette::SourceSpan {
         self.1
     }
-    pub fn convert<S>(&self) -> Ident<S>
+    pub fn convert<T>(&self) -> Ident<T>
     where
-        T: Into<S> + Clone,
+        S: Into<T> + Clone,
     {
         Ident(self.0.clone().into(), self.1)
     }
     pub fn as_str(&self) -> &str
     where
-        T: AsRef<str>,
+        S: AsRef<str>,
     {
         self.as_ref()
     }
     pub fn is_constant(&self) -> bool
     where
-        T: AsRef<str>,
+        S: AsRef<str>,
     {
         self.as_str().starts_with(|c: char| c.is_lowercase())
     }
     pub fn is_variable(&self) -> bool
     where
-        T: AsRef<str>,
+        S: AsRef<str>,
     {
         !self.is_constant()
     }
