@@ -6,8 +6,8 @@ use itertools::Itertools;
 use crate::{
     dolev_yao::Knowledge,
     protocol::{
-        ActorKind, Constant, InstanceName, Message, Nonce, PacketPattern, Protocol, Recipient,
-        SessionId, Variable,
+        ActorKind, Constant, Goal, InstanceName, Message, Nonce, PacketPattern, Protocol,
+        Recipient, SessionId, Variable,
     },
 };
 
@@ -73,6 +73,7 @@ struct Execution {
 #[derive(Debug, Clone, PartialEq)]
 struct Session {
     actors: IndexMap<InstanceName, Actor>,
+    goals: Vec<Goal<InstanceName>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,11 +125,11 @@ fn most_general_unifier(a: &Message, b: &Message) -> Result<SubstitutionTable, (
 
             Ok(substitutions.into())
         }
-        (Message::Composition { func, args }, Message::SymEnc { message, key })
-        | (Message::SymEnc { message, key }, Message::Composition { func, args })
-        | (Message::Composition { func, args }, Message::AsymEnc { message, key })
-        | (Message::AsymEnc { message, key }, Message::Composition { func, args }) => {
-            Err(()) // is this correct?
+        (Message::Composition { func: _, args: _ }, Message::SymEnc { message: _, key: _ })
+        | (Message::SymEnc { message: _, key: _ }, Message::Composition { func: _, args: _ })
+        | (Message::Composition { func: _, args: _ }, Message::AsymEnc { message: _, key: _ })
+        | (Message::AsymEnc { message: _, key: _ }, Message::Composition { func: _, args: _ }) => {
+            Err(()) // TODO: is this correct?
         }
         (
             Message::SymEnc {
@@ -311,42 +312,60 @@ impl Searcher {
         Searcher { protocol }
     }
 
+    fn initiate_session(&self, session_id: SessionId) -> Session {
+        let actors = self
+            .protocol
+            .actors
+            .iter()
+            .map(move |a| {
+                let name = a.name.initiate_for_session(session_id);
+
+                (
+                    name.clone(),
+                    Actor {
+                        name,
+                        strand: Strand {
+                            current_execution: 0,
+                            messages: a
+                                .messages
+                                .iter()
+                                .map(|msg| msg.init_all_actors(session_id))
+                                .collect_vec()
+                                .into(),
+                            knowledge: a.initial_knowledge.init_all_actors(session_id),
+                            substitutions: Default::default(),
+                        },
+                        inbox: VecDeque::default(),
+                    },
+                )
+            })
+            .collect();
+
+        let goals = self
+            .protocol
+            .goals
+            .iter()
+            .map(|goal| match goal {
+                Goal::SecretBetween(a, b, msg) => Goal::SecretBetween(
+                    a.initiate_for_session(session_id),
+                    b.initiate_for_session(session_id),
+                    msg.init_all_actors(session_id),
+                ),
+                Goal::Authenticates(a, b, msg) => Goal::Authenticates(
+                    a.initiate_for_session(session_id),
+                    b.initiate_for_session(session_id),
+                    msg.init_all_actors(session_id),
+                ),
+            })
+            .collect_vec();
+
+        Session { actors, goals }
+    }
+
     pub fn find_attack(&self, s: SearchOptions) -> SearchResult {
         let mut execution_queue = VecDeque::new();
         let sessions = (0..s.num_sessions)
-            .map(|n| Session {
-                actors: self
-                    .protocol
-                    .actors
-                    .iter()
-                    .map(move |a| {
-                        let session = SessionId(n);
-                        let name = if a.name.0.is_constant() {
-                            InstanceName::Constant(a.name.clone())
-                        } else {
-                            InstanceName::Actor(a.name.clone(), session)
-                        };
-                        (
-                            name.clone(),
-                            Actor {
-                                name,
-                                strand: Strand {
-                                    current_execution: 0,
-                                    messages: a
-                                        .messages
-                                        .iter()
-                                        .map(|msg| msg.init_all_actors(session))
-                                        .collect_vec()
-                                        .into(),
-                                    knowledge: a.initial_knowledge.init_all_actors(session),
-                                    substitutions: Default::default(),
-                                },
-                                inbox: VecDeque::default(),
-                            },
-                        )
-                    })
-                    .collect(),
-            })
+            .map(|n| self.initiate_session(SessionId(n)))
             .collect();
 
         let intruder_knowledge: Knowledge = self
@@ -407,7 +426,15 @@ impl ExecutionContext {
 impl Execution {
     pub fn has_attack(&self) -> bool {
         // TODO: check if intruder has access to any goals
-        false
+        match &self.intruder {
+            Some(intruder) => self.sessions.iter().any(|sess| {
+                sess.goals.iter().any(|goal| match goal {
+                    Goal::Authenticates(_, _, _) => todo!("only secrecy goals are checked"),
+                    Goal::SecretBetween(_, _, msg) => intruder.knowledge.can_construct(&msg),
+                })
+            }),
+            None => false,
+        }
     }
 
     pub fn print_trace(&self) {

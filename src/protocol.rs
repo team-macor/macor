@@ -275,15 +275,15 @@ pub struct ProtocolActor {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Goal {
-    SecretBetween(Message),
-    Authenticates(Message),
+pub enum Goal<A> {
+    SecretBetween(A, A, Message),
+    Authenticates(A, A, Message),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Protocol {
     pub actors: Vec<ProtocolActor>,
-    pub goals: Vec<Goal>,
+    pub goals: Vec<Goal<ActorName>>,
 }
 
 impl Protocol {
@@ -382,6 +382,15 @@ impl Func {
         match self.0.as_str() {
             "exp" => true,
             _ => false,
+        }
+    }
+}
+impl ActorName {
+    pub fn initiate_for_session(&self, session_id: SessionId) -> InstanceName {
+        if self.0.is_constant() {
+            InstanceName::Constant(self.clone())
+        } else {
+            InstanceName::Actor(self.clone(), session_id)
         }
     }
 }

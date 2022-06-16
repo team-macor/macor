@@ -132,98 +132,169 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{
-//         parse::{parse_message, parse_messages},
-//         protocol::{TypingContext, UntypedStage},
-//     };
-//
-//     #[test]
-//     fn simple_composition_slides_example() {
-//         /*
-//            init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
-//            goal: h(k_1, k_2)
-//
-//
-//            axiom      axiom
-//            --------  ---------
-//            M |- k_1  M |- k_2
-//            -------------------
-//            M |- h(k_1, k_2)
-//         */
-//
-//         let goal: Message<UntypedStage> = parse_message("h(k1, k2)").unwrap().into();
-//
-//         let knowledge: Knowledge<UntypedStage> =
-//             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3")
-//                 .unwrap()
-//                 .into(); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
-//
-//         assert!(composition_search(&knowledge, &goal, &[Func("h".into())]));
-//     }
-//
-//     #[test]
-//     fn non_provable_composition() {
-//         /*
-//            init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
-//            goal: h(k_1, k_3)
-//         */
-//         let goal: Message<UntypedStage> = parse_message("h(k1, k3)").unwrap().into();
-//
-//         let knowledge: Knowledge<UntypedStage> =
-//             parse_messages("k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3")
-//                 .unwrap()
-//                 .into();
-//
-//         assert!(!composition_search(&knowledge, &goal, &[Func("h".into())]));
-//     }
-//
-//     #[test]
-//     fn non_public_function() {
-//         /*
-//            init knowledge: {k1, k_2 }
-//            pub: h
-//            goal: f(k_1, k_2)
-//         */
-//         let goal: Message<UntypedStage> = parse_message("f(k1, k2)").unwrap().into();
-//
-//         let knowledge: Knowledge<UntypedStage> = parse_messages("k1, k2").unwrap().into();
-//
-//         assert!(!composition_search(&knowledge, &goal, &[Func("h".into())]));
-//     }
-//
-//     #[test]
-//     fn augment_knowledge_slides_example() {
-//         /*
-//            init knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
-//            final knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3, <n1, k3>, n1, k3, n2 }
-//         */
-//         let mut knowledge: Knowledge<UntypedStage> =
-//             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3")
-//                 .unwrap()
-//                 .into();
-//         augment_knowledge(&mut knowledge, &[Func("h".into())]);
-//
-//         assert_eq!(
-//             knowledge,
-//             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, n1, k3, n1, k3, n2")
-//                 .unwrap()
-//                 .into()
-//         );
-//
-//         let mut knowledge: Knowledge<UntypedStage> =
-//             parse_messages("k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3 ")
-//                 .unwrap()
-//                 .into();
-//         augment_knowledge(&mut knowledge, &[Func("h".into())]);
-//
-//         assert_eq!(
-//             knowledge,
-//             parse_messages("k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3, n1, k3, n1, k3, n2")
-//                 .unwrap()
-//                 .into()
-//         );
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        parse::{parse_message, parse_messages},
+        typing::{Type, TypingContext, TypingError, UntypedStage},
+    };
+
+    fn message(ctx: &mut TypingContext, src: &str) -> Message<TypedStage> {
+        let x: Message<UntypedStage> = parse_message(src).unwrap().into();
+        x.to_typed(ctx)
+    }
+    fn knowledge(ctx: &mut TypingContext, src: &str) -> Knowledge<TypedStage> {
+        let x: Knowledge<UntypedStage> = parse_messages(src).unwrap().into();
+        x.to_typed(ctx)
+    }
+
+    fn init_ctx() -> TypingContextBuilder {
+        TypingContextBuilder::default()
+    }
+
+    #[derive(Default)]
+    struct TypingContextBuilder {
+        functions: Vec<&'static str>,
+        numbers: Vec<&'static str>,
+    }
+
+    impl TypingContextBuilder {
+        fn function(mut self, func: &'static str) -> Self {
+            self.functions.push(func);
+            self
+        }
+        fn functions<const N: usize>(mut self, funcs: [&'static str; N]) -> Self {
+            for func in funcs {
+                self = self.function(func);
+            }
+            self
+        }
+        fn number(mut self, num: &'static str) -> Self {
+            self.numbers.push(num);
+            self
+        }
+        fn numbers<const N: usize>(mut self, nums: [&'static str; N]) -> Self {
+            for num in nums {
+                self.numbers.push(num);
+            }
+            self
+        }
+
+        fn build(self) -> TypingContext {
+            TypingContext {
+                src: "".into(),
+                types: self
+                    .functions
+                    .into_iter()
+                    .map(|func| (func.into(), Type::Function))
+                    .chain(
+                        self.numbers
+                            .into_iter()
+                            .map(|num| (num.into(), Type::Number)),
+                    )
+                    .collect(),
+                errors: unsafe {
+                    std::mem::transmute([0u8; std::mem::size_of::<Vec<TypingError>>()])
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn simple_composition_slides_example() {
+        /*
+           init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+           goal: h(k_1, k_2)
+
+
+           axiom      axiom
+           --------  ---------
+           M |- k_1  M |- k_2
+           -------------------
+           M |- h(k_1, k_2)
+        */
+
+        let mut ctx = init_ctx()
+            .function("h")
+            .functions(["n1", "n2"])
+            .functions(["k1", "k2", "k3"])
+            .build();
+
+        let goal = message(&mut ctx, "h(k1, k2)");
+
+        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+
+        assert!(composition_search(&knowledge, &goal));
+    }
+
+    #[test]
+    fn non_provable_composition() {
+        /*
+           init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+           goal: h(k_1, k_3)
+        */
+        let mut ctx = init_ctx()
+            .function("h")
+            .functions(["n1", "n2"])
+            .functions(["k1", "k2", "k3"])
+            .build();
+
+        let goal = message(&mut ctx, "h(k1, k3)");
+
+        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+
+        assert!(!composition_search(&knowledge, &goal));
+    }
+
+    #[test]
+    fn non_public_function() {
+        /*
+           init knowledge: {k1, k_2 }
+           pub: h
+           goal: f(k_1, k_2)
+        */
+        let mut ctx = init_ctx().function("f").functions(["k1", "k2"]).build();
+
+        let goal = message(&mut ctx, "f(k1, k2)");
+
+        let knowledge = knowledge(&mut ctx, "k1, k2");
+
+        assert!(!composition_search(&knowledge, &goal));
+    }
+
+    #[test]
+    fn augment_knowledge_slides_example() {
+        /*
+           init knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+           final knowledge: { k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3, <n1, k3>, n1, k3, n2 }
+        */
+        let mut ctx = init_ctx()
+            .function("h")
+            .functions(["n1", "n2"])
+            .functions(["k1", "k2", "k3"])
+            .build();
+
+        let mut q1 = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3");
+        augment_knowledge(&mut q1);
+
+        assert_eq!(
+            q1,
+            knowledge(
+                &mut ctx,
+                "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, n1, k3, n1, k3, n2"
+            )
+        );
+
+        let mut q2 = knowledge(&mut ctx, "k1, &mut ctx, k2, {|n1, k3|}h(k1,k2), {|n2|}k3 ");
+        augment_knowledge(&mut q2);
+
+        assert_eq!(
+            q2,
+            knowledge(
+                &mut ctx,
+                "k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3, n1, k3, n1, k3, n2"
+            )
+        );
+    }
+}
