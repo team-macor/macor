@@ -8,7 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 #[derive(Debug)]
 struct Backend {
     sources: DashMap<Url, Arc<String>>,
-    asts: DashMap<Url, Arc<macor::ast::Document<'static>>>,
+    asts: DashMap<Url, Arc<macor::ast::Document<String>>>,
     client: Client,
 }
 
@@ -156,7 +156,8 @@ impl Backend {
             }
         };
 
-        self.asts.insert(uri.clone(), Arc::new(ast.clone()));
+        self.asts
+            .insert(uri.clone(), Arc::new(ast.clone().map(|s| s.into())));
 
         match macor::protocol::Protocol::new(text.to_string(), ast) {
             Ok(_) => {}

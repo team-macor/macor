@@ -11,6 +11,22 @@ pub struct Document<S: Deref<Target = str>> {
     pub goals: Vec<Goal<S>>,
 }
 
+impl<S: Deref<Target = str>> Document<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Document<T> {
+        Document {
+            name: self.name.map(f),
+            types: self
+                .types
+                .into_iter()
+                .map(|(k, is)| (k, is.into_iter().map(|i| i.map(f)).collect()))
+                .collect(),
+            knowledge: self.knowledge.map(f),
+            actions: self.actions.into_iter().map(|a| a.map(f)).collect(),
+            goals: self.goals.into_iter().map(|g| g.map(f)).collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum TypesKey {
     Agent,
@@ -35,10 +51,113 @@ pub enum Goal<S: Deref<Target = str>> {
     },
 }
 
+impl<S: Deref<Target = str>> Goal<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Goal<T> {
+        match self {
+            Goal::Authenticates { a, b, msgs, weakly } => Goal::Authenticates {
+                a: a.map(f),
+                b: b.map(f),
+                msgs: msgs.into_iter().map(|msg| msg.map(f)).collect(),
+                weakly,
+            },
+            Goal::SecretBetween {
+                msg,
+                agents,
+                guessable,
+            } => Goal::SecretBetween {
+                msg: msg.map(f),
+                agents: agents.into_iter().map(|i| i.map(f)).collect(),
+                guessable,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Message<S: Deref<Target = str>> {
+    Var(Ident<S>),
+    Fun(Ident<S>, Vec<Message<S>>),
+    SymEnc(Vec<Message<S>>, Box<Message<S>>),
+    AsymEnc(Vec<Message<S>>, Box<Message<S>>),
+}
+
+impl<S: Deref<Target = str>> Message<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Message<T> {
+        match self {
+            Message::Var(i) => Message::Var(i.map(f)),
+            Message::Fun(i, msgs) => {
+                Message::Fun(i.map(f), msgs.into_iter().map(|msg| msg.map(f)).collect())
+            }
+
+            Message::SymEnc(msgs, key) => Message::SymEnc(
+                msgs.into_iter().map(|msg| msg.map(f)).collect(),
+                box key.map(f),
+            ),
+            Message::AsymEnc(msgs, key) => Message::AsymEnc(
+                msgs.into_iter().map(|msg| msg.map(f)).collect(),
+                box key.map(f),
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Action<S: Deref<Target = str>> {
+    pub from: Ident<S>,
+    pub to: Ident<S>,
+    pub msgs: Vec<Message<S>>,
+}
+
+impl<S: Deref<Target = str>> Action<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Action<T> {
+        Action {
+            from: self.from.map(f),
+            to: self.to.map(f),
+            msgs: self.msgs.into_iter().map(|mgs| mgs.map(f)).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Knowledge<S: Deref<Target = str>> {
+    pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
+    pub wheres: Vec<Where<S>>,
+}
+
+impl<S: Deref<Target = str>> Knowledge<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Knowledge<T> {
+        Knowledge {
+            agents: self
+                .agents
+                .into_iter()
+                .map(|(i, msgs)| (i.map(f), msgs.into_iter().map(|msg| msg.map(f)).collect()))
+                .collect(),
+
+            wheres: self.wheres.into_iter().map(|w| w.map(f)).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Where<S: Deref<Target = str>> {
+    NotEqual(Ident<S>, Ident<S>),
+}
+
+impl<S: Deref<Target = str>> Where<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Where<T> {
+        match self {
+            Where::NotEqual(l, r) => Where::NotEqual(l.map(f), r.map(f)),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Ident<S>(pub S, pub miette::SourceSpan);
 
 impl<S> Ident<S> {
+    pub fn map<T>(self, f: impl Fn(S) -> T + Copy) -> Ident<T> {
+        Ident(f(self.0), self.1)
+    }
     pub fn span(&self) -> miette::SourceSpan {
         self.1
     }
@@ -122,30 +241,4 @@ impl<'a> From<&'a str> for Ident<SmolStr> {
     fn from(s: &'a str) -> Self {
         Ident(s.into(), (0, 0).into())
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum Message<S: Deref<Target = str>> {
-    Var(Ident<S>),
-    Fun(Ident<S>, Vec<Message<S>>),
-    SymEnc(Vec<Message<S>>, Box<Message<S>>),
-    AsymEnc(Vec<Message<S>>, Box<Message<S>>),
-}
-
-#[derive(Debug, Clone)]
-pub struct Action<S: Deref<Target = str>> {
-    pub from: Ident<S>,
-    pub to: Ident<S>,
-    pub msgs: Vec<Message<S>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Knowledge<S: Deref<Target = str>> {
-    pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
-    pub wheres: Vec<Where<S>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum Where<S: Deref<Target = str>> {
-    NotEqual(Ident<S>, Ident<S>),
 }
