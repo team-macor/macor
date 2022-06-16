@@ -18,6 +18,7 @@ match {
     "}",
     "{|",
     "|}",
+    "!=",
     "Protocol",
     "Types",
     "Knowledge",
@@ -33,7 +34,8 @@ match {
     "secret",
     "between",
     "weakly",
-    "guessable"
+    "guessable",
+    "where",
 }
 
 // Sep<S, T>: Vec<T> = {
@@ -52,7 +54,7 @@ Sep<S, T>: Vec<T> = {
     }
 };
 
-pub Document: Document<'input> = <name:Protocol> <types:Types> <knowledge:Knowledge> <actions:Actions> <goals:Goals> =>
+pub Document: Document<&'input str> = <name:Protocol> <types:Types> <knowledge:Knowledge> <actions:Actions> <goals:Goals> =>
     Document { <> };
 
 Protocol: Ident<&'input str> = "Protocol" ":" <Ident>;
@@ -66,25 +68,29 @@ TypesKey: TypesKey = {
     "Function"      => TypesKey::Function,
 };
 
-Knowledge: Knowledge<'input> = "Knowledge" ":" <agents:Sep<";", (<Ident> ":" <Sep<",",Message>>)>> => Knowledge { <> };
-
-Actions: Vec<Action<'input>> = "Actions" ":" <Action*>;
-Action: Action<'input> =
-    <to:Ident> "->" <from:Ident> ":" <msgs:Sep<",", Message>> => Action { <> };
-
-Goals: Vec<Goal<'input>> = "Goals" ":" <Goal*>;
-
 Flag<T>: bool = T? => <>.is_some();
 
-pub Goal: Goal<'input> = {
+Where: Where<&'input str> = <a:Ident> "!=" <b:Ident> => Where::NotEqual(a,b);
+Wheres: Vec<Where<&'input str>> = "where" <Sep<",",Where>>;
+
+Knowledge: Knowledge<&'input str> = "Knowledge" ":" <agents:Sep<";", (<Ident> ":" <Sep<",",Message>>)>> <wheres:Wheres?> => Knowledge { agents, wheres: wheres.unwrap_or_default() };
+
+Actions: Vec<Action<&'input str>> = "Actions" ":" <Action*>;
+Action: Action<&'input str> =
+    <from:Ident> "->" <to:Ident> ":" <msgs:Sep<",", Message>> => Action { <> };
+
+Goals: Vec<Goal<&'input str>> = "Goals" ":" <Goal*>;
+
+
+pub Goal: Goal<&'input str> = {
     <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <msgs:Sep<",", Message>> =>
         Goal::Authenticates { <> },
     <msg:Message> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
         Goal::SecretBetween { <> },
 };
 
-pub Messages: Vec<Message<'input>> = Sep<",", Message>;
-pub Message: Message<'input> = {
+pub Messages: Vec<Message<&'input str>> = Sep<",", Message>;
+pub Message: Message<&'input str> = {
     <Ident> => Message::Var(<>),
     <Ident> "(" <Sep<",", Message>> ")" => Message::Fun(<>),
     "{|" <msgs:Sep<",", Message>> "|}" <key:Message> => Message::SymEnc(msgs, Box::new(key)),

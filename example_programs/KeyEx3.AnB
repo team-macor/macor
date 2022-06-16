@@ -5,7 +5,7 @@ Protocol: KeyEx
 Types:
   Agent A,B,s;
   Symmetric_key KAB;
-  Function sk,kdf
+  Function sk,kdf,h
 
 Knowledge:
   A: A,B,s,sk(A,s),h;

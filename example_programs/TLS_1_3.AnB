@@ -3,7 +3,7 @@ Protocol: TLS_1_3
 # Very simplified model
 
 Types: Agent A,B,s;
-       Number NA,NB,X,Y,DATAA;
+       Number NA,NB,X,Y,DATAA,DATAB;
        Function pk,clientK,serverK,kdf,h,g,mac,data,pw
 
 Knowledge:

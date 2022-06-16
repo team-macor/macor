@@ -74,7 +74,7 @@ pub struct ParseResult<T> {
     pub errors: Vec<ParseError>,
 }
 
-pub fn parse_document(src: &str) -> Result<Document, ParseError> {
+pub fn parse_document(src: &str) -> Result<Document<&str>, ParseError> {
     static PARSER: once_cell::sync::Lazy<parser::DocumentParser> =
         once_cell::sync::Lazy::new(parser::DocumentParser::new);
 
@@ -84,7 +84,7 @@ pub fn parse_document(src: &str) -> Result<Document, ParseError> {
     }
 }
 
-pub fn parse_message(arg: &str) -> Result<Message, ParseError> {
+pub fn parse_message(arg: &str) -> Result<Message<&str>, ParseError> {
     static PARSER: once_cell::sync::Lazy<parser::MessageParser> =
         once_cell::sync::Lazy::new(parser::MessageParser::new);
 
@@ -94,7 +94,7 @@ pub fn parse_message(arg: &str) -> Result<Message, ParseError> {
     }
 }
 
-pub fn parse_messages(arg: &str) -> Result<Vec<Message>, ParseError> {
+pub fn parse_messages(arg: &str) -> Result<Vec<Message<&str>>, ParseError> {
     static PARSER: once_cell::sync::Lazy<parser::MessagesParser> =
         once_cell::sync::Lazy::new(parser::MessagesParser::new);
 

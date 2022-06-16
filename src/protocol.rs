@@ -1,11 +1,12 @@
 use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
+use itertools::Itertools;
 use miette::SourceSpan;
 
 use crate::{
     ast::{self, Ident},
     dolev_yao::{self, Knowledge},
-    search::Packet,
+    search::{Packet, SubstitutionTable},
 };
 
 pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash {
@@ -31,8 +32,14 @@ impl Stage for TypedStage {
     type Variable = Variable;
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct ActorName(Ident<String>);
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
+pub struct ActorName(pub(crate) Ident<String>);
+
+impl std::fmt::Debug for ActorName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub u32);
@@ -47,7 +54,7 @@ pub enum InstanceName {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub struct Func(pub Ident<String>);
 
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub enum Message<S: Stage = TypedStage> {
     Variable(S::Variable),
     Constant(S::Constant),
@@ -68,8 +75,25 @@ pub enum Message<S: Stage = TypedStage> {
     Exp(Box<Message<S>>),
 }
 
-impl<'a> From<ast::Message<'a>> for Message<UntypedStage<'a>> {
-    fn from(message: ast::Message<'a>) -> Self {
+impl<S: Stage> std::fmt::Debug for Message<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Variable(var) => write!(f, "@{var:?}"),
+            Self::Constant(c) => write!(f, "#{c:?}"),
+            Self::Composition { func, args } => {
+                write!(f, "{}({:?})", func.0, args.iter().format(", "))
+            }
+            Self::SymEnc { message, key } => write!(f, "{{| {:?} |}}{:?}", message, key),
+            Self::AsymEnc { message, key } => write!(f, "{{ {:?} }}{:?}", message, key),
+            Self::Tuple(ts) => write!(f, ":({:?})", ts.iter().format(", ")),
+            Self::Inverse(arg0) => f.debug_tuple("Inverse").field(arg0).finish(),
+            Self::Exp(arg0) => f.debug_tuple("Exp").field(arg0).finish(),
+        }
+    }
+}
+
+impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
+    fn from(message: ast::Message<&'a str>) -> Self {
         match message {
             ast::Message::Var(var) => Self::Variable(var.clone()),
             ast::Message::Fun(name, args) => Self::Composition {
@@ -105,7 +129,7 @@ impl Knowledge<TypedStage> {
         Knowledge::new(messages)
     }
 
-    pub fn init_all_actors(&self, session_id: SessionId) -> Knowledge {
+    pub fn init_all_actors(&self, session_id: SessionId) -> Knowledge<TypedStage> {
         Knowledge::new(
             self.iter()
                 .map(|msg| msg.init_all_actors(session_id))
@@ -117,14 +141,22 @@ impl Knowledge<TypedStage> {
         self.can_construct(msg)
     }
     pub fn can_construct(&self, msg: &Message) -> bool {
+        // TODO: Remove this when found to be not a problem :)
+        let mut augmented = self.clone();
+        dolev_yao::augment_knowledge(&mut augmented);
+        assert_eq!(self, &augmented);
+
         // NOTE: Assume that augment_knowledge has already been called :)
-        dolev_yao::composition_search(self, msg, &[])
+        dolev_yao::composition_search(self, msg)
     }
 }
 
 impl Knowledge<UntypedStage<'_>> {
     pub fn to_typed(&self, ctx: &mut TypingContext) -> Knowledge<TypedStage> {
-        self.iter().map(|message| message.to_typed(ctx)).collect()
+        let msgs: Vec<Message<TypedStage>> =
+            self.0.iter().map(|message| message.to_typed(ctx)).collect();
+
+        Knowledge::<TypedStage>::new(msgs)
     }
 }
 
@@ -145,7 +177,7 @@ pub enum Constant {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub struct Nonce(pub u32);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Type {
     Agent,
     SymmetricKey,
@@ -153,9 +185,9 @@ pub enum Type {
     Function,
 }
 
-#[derive(Debug, thiserror::Error, miette::Diagnostic, Clone)]
+#[derive(Debug, PartialEq, thiserror::Error, miette::Diagnostic, Clone)]
 pub enum TypingError {
-    #[error("Symmetric key {name} cannot be constant")]
+    #[error("Symmetric key '{name}' cannot be constant")]
     #[diagnostic()]
     ConstantSymmetricKey {
         #[source_code]
@@ -173,7 +205,7 @@ pub enum TypingError {
         #[label("This nonce must have an uppercase name")]
         err_span: SourceSpan,
     },
-    #[error("Function {name} cannot be variable")]
+    #[error("Function '{name}' cannot be variable")]
     #[diagnostic()]
     FunctionAsVariable {
         #[source_code]
@@ -183,7 +215,7 @@ pub enum TypingError {
         err_span: SourceSpan,
     },
     #[error(
-        "The {} {name} has not been given a type",
+        "The {} '{name}' has not been given a type",
         if name.starts_with(|c: char| c.is_lowercase()) { "constant" } else { "variable" }
     )]
     #[diagnostic()]
@@ -194,9 +226,19 @@ pub enum TypingError {
         #[label("All variables and constant must have been given a type")]
         err_span: SourceSpan,
     },
+    #[error("Function {func} is not a function")]
+    #[diagnostic()]
+    NotAFunction {
+        #[source_code]
+        src: String,
+        func: String,
+        actual_ty: Type,
+        #[label("The actual type is {actual_ty:?}")]
+        err_span: SourceSpan,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TypingContext {
     src: String,
     types: HashMap<String, Type>,
@@ -216,6 +258,15 @@ impl Message<UntypedStage<'_>> {
     fn to_typed(&self, ctx: &mut TypingContext) -> Message {
         match self {
             Message::Variable(name) => {
+                // NOTE: Built-ins
+                match name.as_str() {
+                    "inv" | "exp" => {
+                        // TODO
+                        return Message::Constant(Constant::Function(Func(name.convert())));
+                    }
+                    _ => {}
+                }
+
                 let is_constant = name.is_constant();
 
                 if let Some(ty) = ctx.lookup(name.as_str()) {
@@ -259,7 +310,7 @@ impl Message<UntypedStage<'_>> {
                         }
                     }
                 } else {
-                    // panic!("name {name} not found in {ctx:?}");
+                    // panic!("name '{name}' not found in {ctx:?}");
                     ctx.errors.push(TypingError::NotDeclared {
                         src: ctx.src(),
                         name: name.to_string(),
@@ -270,10 +321,44 @@ impl Message<UntypedStage<'_>> {
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
             // TODO: Check that func is defined as a function
-            Message::Composition { func, args } => Message::Composition {
-                func: func.clone(),
-                args: args.iter().map(|x| x.to_typed(ctx)).collect(),
-            },
+            // TODO: Check that it is implemented correctly :)
+            Message::Composition { func, args } => {
+                match func.0.as_str() {
+                    "inv" | "exp" => {
+                        return Message::Composition {
+                            func: func.clone(),
+                            args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                        }
+                    }
+                    _ => {}
+                }
+
+                if let Some(ty) = ctx.lookup(func.0.as_str()) {
+                    match ty {
+                        Type::Function => {}
+                        _ => {
+                            ctx.errors.push(TypingError::NotAFunction {
+                                src: ctx.src(),
+                                func: func.0.to_string(),
+                                actual_ty: ty,
+                                err_span: func.0.span(),
+                            });
+                        }
+                    }
+                } else {
+                    // panic!("name '{name}' not found in {ctx:?}");
+                    ctx.errors.push(TypingError::NotDeclared {
+                        src: ctx.src(),
+                        name: func.0.to_string(),
+                        err_span: func.0.span(),
+                    });
+                }
+
+                Message::Composition {
+                    func: func.clone(),
+                    args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                }
+            }
             Message::SymEnc { message, key } => Message::SymEnc {
                 message: box message.to_typed(ctx),
                 key: box key.to_typed(ctx),
@@ -319,13 +404,50 @@ impl Message<TypedStage> {
             Message::Exp(x) => Message::Exp(box x.substitute_actor_instance(from, to)),
         }
     }
+    pub fn perform_substitutions(&self, subs: &SubstitutionTable) -> Message<TypedStage> {
+        let res = match self {
+            Message::Variable(var) => match subs.table.get(var) {
+                Some(m) => m.clone(),
+                None => self.clone(),
+            },
+            Message::Constant(_) => self.clone(),
+            Message::Composition { func, args } => Message::Composition {
+                func: func.clone(),
+                args: args
+                    .iter()
+                    .map(|msg| msg.perform_substitutions(subs))
+                    .collect(),
+            },
+            Message::SymEnc { message, key } => Message::SymEnc {
+                message: box message.perform_substitutions(subs),
+                key: box key.perform_substitutions(subs),
+            },
+            Message::AsymEnc { message, key } => Message::AsymEnc {
+                message: box message.perform_substitutions(subs),
+                key: box key.perform_substitutions(subs),
+            },
+            Message::Tuple(ts) => {
+                Message::Tuple(ts.iter().map(|t| t.perform_substitutions(subs)).collect())
+            }
+            Message::Inverse(i) => Message::Inverse(box i.perform_substitutions(subs)),
+            Message::Exp(x) => Message::Exp(box x.perform_substitutions(subs)),
+        };
+
+        res
+    }
     pub fn init_all_actors(&self, session_id: SessionId) -> Message<TypedStage> {
         match self {
             Message::Variable(var) => match var {
-                Variable::Actor(a) => Message::Constant(Constant::Instance(InstanceName::Actor(
-                    a.clone(),
-                    session_id,
-                ))),
+                Variable::Actor(a) => {
+                    if a.0.is_constant() {
+                        Message::Constant(Constant::Instance(InstanceName::Constant(a.clone())))
+                    } else {
+                        Message::Constant(Constant::Instance(InstanceName::Actor(
+                            a.clone(),
+                            session_id,
+                        )))
+                    }
+                }
                 Variable::SymmetricKey(_) | Variable::Number(_) => self.clone(),
             },
             Message::Constant(_) => self.clone(),
@@ -353,13 +475,13 @@ impl Message<TypedStage> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Recipient {
     Variable(ActorName),
     Instance(InstanceName),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PacketPattern {
     Ingoing(Packet),
     Outgoing(Recipient, Packet),
@@ -371,7 +493,7 @@ pub enum ActorKind {
     Constant,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProtocolActor {
     pub name: ActorName,
     pub kind: ActorKind,
@@ -379,13 +501,13 @@ pub struct ProtocolActor {
     pub messages: Vec<PacketPattern>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Goal {
     SecretBetween(Message),
     Authenticates(Message),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Protocol {
     pub actors: Vec<ProtocolActor>,
     pub goals: Vec<Goal>,
@@ -394,9 +516,9 @@ pub struct Protocol {
 impl Protocol {
     fn new_protocol_actor(
         agent: &Ident<&str>,
-        knowledge: &[ast::Message],
+        knowledge: &[ast::Message<&str>],
         ctx: &mut TypingContext,
-        document: &ast::Document,
+        document: &ast::Document<&str>,
     ) -> ProtocolActor {
         let k: Knowledge<UntypedStage> = knowledge.into();
 
@@ -441,7 +563,7 @@ impl Protocol {
         }
     }
 
-    pub fn new(src: String, document: ast::Document) -> Result<Protocol, Vec<TypingError>> {
+    pub fn new(src: String, document: ast::Document<&str>) -> Result<Protocol, Vec<TypingError>> {
         let mut ctx = TypingContext {
             types: document
                 .types
@@ -481,3 +603,28 @@ impl Protocol {
         }
     }
 }
+impl Func {
+    pub(crate) fn is_public(&self) -> bool {
+        #[allow(clippy::match_like_matches_macro)]
+        match self.0.as_str() {
+            "exp" => true,
+            _ => false,
+        }
+    }
+}
+
+// struct FreeId(usize);
+
+// struct MessageRef(usize);
+
+// enum Message {
+//     Free(FreeId),
+//     Just(MessageInner),
+// }
+
+// enum MessageInner {
+//     Composition {
+//         func: Func,
+//         args: Vec<MessageRef>,
+//     },
+// }

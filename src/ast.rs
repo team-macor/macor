@@ -1,10 +1,10 @@
 #[derive(Debug, Clone)]
-pub struct Document<'a> {
-    pub name: Ident<&'a str>,
-    pub types: Vec<(TypesKey, Vec<Ident<&'a str>>)>,
-    pub knowledge: Knowledge<'a>,
-    pub actions: Vec<Action<'a>>,
-    pub goals: Vec<Goal<'a>>,
+pub struct Document<S: AsRef<str>> {
+    pub name: Ident<S>,
+    pub types: Vec<(TypesKey, Vec<Ident<S>>)>,
+    pub knowledge: Knowledge<S>,
+    pub actions: Vec<Action<S>>,
+    pub goals: Vec<Goal<S>>,
 }
 
 #[derive(Debug, Clone)]
@@ -17,16 +17,16 @@ pub enum TypesKey {
 }
 
 #[derive(Debug, Clone)]
-pub enum Goal<'a> {
+pub enum Goal<S: AsRef<str>> {
     Authenticates {
-        a: Ident<&'a str>,
-        b: Ident<&'a str>,
-        msgs: Vec<Message<'a>>,
+        a: Ident<S>,
+        b: Ident<S>,
+        msgs: Vec<Message<S>>,
         weakly: bool,
     },
     SecretBetween {
-        msg: Message<'a>,
-        agents: Vec<Ident<&'a str>>,
+        msg: Message<S>,
+        agents: Vec<Ident<S>>,
         guessable: bool,
     },
 }
@@ -116,21 +116,27 @@ impl<'a> From<&'a str> for Ident<String> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Message<'a> {
-    Var(Ident<&'a str>),
-    Fun(Ident<&'a str>, Vec<Message<'a>>),
-    SymEnc(Vec<Message<'a>>, Box<Message<'a>>),
-    AsymEnc(Vec<Message<'a>>, Box<Message<'a>>),
+pub enum Message<S: AsRef<str>> {
+    Var(Ident<S>),
+    Fun(Ident<S>, Vec<Message<S>>),
+    SymEnc(Vec<Message<S>>, Box<Message<S>>),
+    AsymEnc(Vec<Message<S>>, Box<Message<S>>),
 }
 
 #[derive(Debug, Clone)]
-pub struct Action<'a> {
-    pub from: Ident<&'a str>,
-    pub to: Ident<&'a str>,
-    pub msgs: Vec<Message<'a>>,
+pub struct Action<S: AsRef<str>> {
+    pub from: Ident<S>,
+    pub to: Ident<S>,
+    pub msgs: Vec<Message<S>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Knowledge<'a> {
-    pub agents: Vec<(Ident<&'a str>, Vec<Message<'a>>)>,
+pub struct Knowledge<S: AsRef<str>> {
+    pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
+    pub wheres: Vec<Where<S>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Where<S: AsRef<str>> {
+    NotEqual(Ident<S>, Ident<S>),
 }
