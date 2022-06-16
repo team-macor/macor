@@ -1,5 +1,9 @@
+use std::ops::Deref;
+
+use smol_str::SmolStr;
+
 #[derive(Debug, Clone)]
-pub struct Document<S: AsRef<str>> {
+pub struct Document<S: Deref<Target = str>> {
     pub name: Ident<S>,
     pub types: Vec<(TypesKey, Vec<Ident<S>>)>,
     pub knowledge: Knowledge<S>,
@@ -17,7 +21,7 @@ pub enum TypesKey {
 }
 
 #[derive(Debug, Clone)]
-pub enum Goal<S: AsRef<str>> {
+pub enum Goal<S: Deref<Target = str>> {
     Authenticates {
         a: Ident<S>,
         b: Ident<S>,
@@ -46,19 +50,19 @@ impl<S> Ident<S> {
     }
     pub fn as_str(&self) -> &str
     where
-        S: AsRef<str>,
+        S: Deref<Target = str>,
     {
         self.as_ref()
     }
     pub fn is_constant(&self) -> bool
     where
-        S: AsRef<str>,
+        S: Deref<Target = str>,
     {
         self.as_str().starts_with(|c: char| c.is_lowercase())
     }
     pub fn is_variable(&self) -> bool
     where
-        S: AsRef<str>,
+        S: Deref<Target = str>,
     {
         !self.is_constant()
     }
@@ -89,17 +93,17 @@ impl<S: PartialEq> PartialEq for Ident<S> {
 }
 impl<S: Eq> Eq for Ident<S> {}
 
-impl<S: AsRef<str>> std::fmt::Debug for Ident<S> {
+impl<S: Deref<Target = str>> std::fmt::Debug for Ident<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_ref())
+        write!(f, "{}", self.0.deref())
     }
 }
-impl<S: AsRef<str>> std::fmt::Display for Ident<S> {
+impl<S: Deref<Target = str>> std::fmt::Display for Ident<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0.as_ref())
+        write!(f, "{}", self.0.deref())
     }
 }
-impl<S: AsRef<str>> AsRef<str> for Ident<S> {
+impl<S: Deref<Target = str>> AsRef<str> for Ident<S> {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
@@ -114,9 +118,14 @@ impl<'a> From<&'a str> for Ident<String> {
         Ident(s.to_string(), (0, 0).into())
     }
 }
+impl<'a> From<&'a str> for Ident<SmolStr> {
+    fn from(s: &'a str) -> Self {
+        Ident(s.into(), (0, 0).into())
+    }
+}
 
 #[derive(Debug, Clone)]
-pub enum Message<S: AsRef<str>> {
+pub enum Message<S: Deref<Target = str>> {
     Var(Ident<S>),
     Fun(Ident<S>, Vec<Message<S>>),
     SymEnc(Vec<Message<S>>, Box<Message<S>>),
@@ -124,19 +133,19 @@ pub enum Message<S: AsRef<str>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Action<S: AsRef<str>> {
+pub struct Action<S: Deref<Target = str>> {
     pub from: Ident<S>,
     pub to: Ident<S>,
     pub msgs: Vec<Message<S>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct Knowledge<S: AsRef<str>> {
+pub struct Knowledge<S: Deref<Target = str>> {
     pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
     pub wheres: Vec<Where<S>>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Where<S: AsRef<str>> {
+pub enum Where<S: Deref<Target = str>> {
     NotEqual(Ident<S>, Ident<S>),
 }

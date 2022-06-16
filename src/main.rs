@@ -22,7 +22,10 @@ fn main() -> miette::Result<()> {
             Protocol::new(src.clone(), parsed).map_err(|x| x.first().cloned().unwrap())?;
         let searcher = Searcher::new(protocol);
 
-        let attack = searcher.find_attack(SearchOptions { num_sessions: 1 });
+        let attack = searcher.find_attack(SearchOptions {
+            num_sessions: 3,
+            include_intruder: false,
+        });
 
         println!("{attack:#?}");
     }

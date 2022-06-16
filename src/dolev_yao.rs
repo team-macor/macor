@@ -1,6 +1,7 @@
 use crate::{
     ast,
-    protocol::{Constant, Message, Stage, TypedStage, UntypedStage},
+    protocol::{Constant, Message},
+    typing::{Stage, TypedStage, UntypedStage},
 };
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
@@ -93,20 +94,20 @@ pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<Type
 
 pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
     loop {
-        let mut new_messages = Vec::new();
+        let mut new_messages: Vec<Message> = Vec::new();
 
         for message in knowledge.iter() {
             match message {
                 Message::SymEnc { message, key } => {
                     if composition_search(knowledge, key) {
-                        new_messages.push(*message.clone());
+                        new_messages.push(message.as_ref().clone());
                     }
                 }
                 Message::AsymEnc { message, key } => {
                     if let Message::Inverse(_key) = key.as_ref() {
-                        new_messages.push(*message.clone());
+                        new_messages.push(message.as_ref().clone());
                     } else if composition_search(knowledge, &Message::Inverse((*key).clone())) {
-                        new_messages.push(*message.clone());
+                        new_messages.push(message.as_ref().clone());
                     }
                 }
                 Message::Tuple(messages) => {

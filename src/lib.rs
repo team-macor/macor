@@ -6,5 +6,6 @@ pub mod dolev_yao;
 pub mod parse;
 pub mod protocol;
 pub mod search;
+pub mod typing;
 
 pub use parse::parse_document;

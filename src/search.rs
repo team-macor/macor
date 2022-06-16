@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::Once};
+use std::{collections::VecDeque, rc::Rc};
 
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -53,7 +53,7 @@ impl SubstitutionTable {
 #[derive(Debug, Clone, PartialEq)]
 struct Strand {
     current_execution: usize,
-    messages: Vec<PacketPattern>,
+    messages: Rc<Vec<PacketPattern>>,
     knowledge: Knowledge,
     substitutions: SubstitutionTable,
 }
@@ -98,7 +98,7 @@ fn most_general_unifier(a: &Message, b: &Message) -> Result<SubstitutionTable, (
                 return Err(());
             }
 
-            let substitutions = ayo(xs, ys)?;
+            let substitutions = combine_substitutions(xs, ys)?;
 
             Ok(substitutions.into())
         }
@@ -120,7 +120,7 @@ fn most_general_unifier(a: &Message, b: &Message) -> Result<SubstitutionTable, (
                 return Err(());
             }
 
-            let substitutions = ayo(args1, args2)?;
+            let substitutions = combine_substitutions(args1, args2)?;
 
             Ok(substitutions.into())
         }
@@ -161,9 +161,9 @@ fn most_general_unifier(a: &Message, b: &Message) -> Result<SubstitutionTable, (
     }
 }
 
-fn ayo(args1: &[Message], args2: &[Message]) -> Result<IndexMap<Variable, Message>, ()> {
+fn combine_substitutions(a: &[Message], b: &[Message]) -> Result<IndexMap<Variable, Message>, ()> {
     let mut substitutions = IndexMap::new();
-    for (a, b) in args1.iter().zip(args2.iter()) {
+    for (a, b) in a.iter().zip(b.iter()) {
         let argument_unification = most_general_unifier(a, b)?;
 
         for (var, unification) in argument_unification {
@@ -235,18 +235,18 @@ fn unify(msg: &Message, unification: &SubstitutionTable) -> Message {
             args: args.iter().map(|msg| unify(msg, unification)).collect(),
         },
         Message::SymEnc { message, key } => Message::SymEnc {
-            message: box unify(message, unification),
-            key: box unify(key, unification),
+            message: unify(message, unification).into(),
+            key: unify(key, unification).into(),
         },
         Message::AsymEnc { message, key } => Message::AsymEnc {
-            message: box unify(message, unification),
-            key: box unify(key, unification),
+            message: unify(message, unification).into(),
+            key: unify(key, unification).into(),
         },
         Message::Tuple(args) => {
             Message::Tuple(args.iter().map(|arg| unify(arg, unification)).collect())
         }
-        Message::Inverse(key) => Message::Inverse(box unify(key, unification)),
-        Message::Exp(arg) => Message::Exp(box unify(arg, unification)),
+        Message::Inverse(key) => Message::Inverse(unify(key, unification).into()),
+        Message::Exp(arg) => Message::Exp(unify(arg, unification).into()),
     }
 }
 
@@ -302,6 +302,7 @@ pub struct Searcher {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchOptions {
+    pub include_intruder: bool,
     pub num_sessions: u32,
 }
 
@@ -335,7 +336,8 @@ impl Searcher {
                                         .messages
                                         .iter()
                                         .map(|msg| msg.init_all_actors(session))
-                                        .collect(),
+                                        .collect_vec()
+                                        .into(),
                                     knowledge: a.initial_knowledge.init_all_actors(session),
                                     substitutions: Default::default(),
                                 },
@@ -361,10 +363,9 @@ impl Searcher {
             .collect();
 
         let exe = Execution {
-            // intruder: Some(Intruder {
-            //     knowledge: intruder_knowledge,
-            // }),
-            intruder: None,
+            intruder: s.include_intruder.then(|| Intruder {
+                knowledge: intruder_knowledge,
+            }),
             trace: vec![],
             sessions,
         };
@@ -618,20 +619,20 @@ impl Strand {
                     .collect::<Option<Vec<_>>>()?,
             },
             Message::SymEnc { message, key } => Message::SymEnc {
-                message: box self.initiate_msg(ctx, message)?,
-                key: box self.initiate_msg(ctx, key)?,
+                message: self.initiate_msg(ctx, message)?.into(),
+                key: self.initiate_msg(ctx, key)?.into(),
             },
             Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: box self.initiate_msg(ctx, message)?,
-                key: box self.initiate_msg(ctx, key)?,
+                message: self.initiate_msg(ctx, message)?.into(),
+                key: self.initiate_msg(ctx, key)?.into(),
             },
             Message::Tuple(ts) => Message::Tuple(
                 ts.iter()
                     .map(|t| self.initiate_msg(ctx, t))
                     .collect::<Option<Vec<_>>>()?,
             ),
-            Message::Inverse(x) => Message::Inverse(box self.initiate_msg(ctx, x)?),
-            Message::Exp(x) => Message::Exp(box self.initiate_msg(ctx, x)?),
+            Message::Inverse(x) => Message::Inverse(self.initiate_msg(ctx, x)?.into()),
+            Message::Exp(x) => Message::Exp(self.initiate_msg(ctx, x)?.into()),
         };
 
         self.knowledge
@@ -703,5 +704,25 @@ mod tests {
         //     &Message::Constant(Constant::Nonce(Nonce(0))),
         // )
         // .is_err());
+    }
+
+    #[test]
+    fn can_verify_all_protocols() -> Result<(), Box<dyn std::error::Error>> {
+        for p in std::fs::read_dir("./example_programs")? {
+            let src = std::fs::read_to_string(p?.path())?;
+            let parsed = crate::parse_document(&src)?;
+            let protocol =
+                Protocol::new(src.clone(), parsed).map_err(|x| x.first().cloned().unwrap())?;
+            let searcher = Searcher::new(protocol);
+
+            let attack = searcher.find_attack(SearchOptions {
+                num_sessions: 1,
+                include_intruder: false,
+            });
+
+            assert_eq!(attack, SearchResult::NoAttackFound);
+        }
+
+        Ok(())
     }
 }
