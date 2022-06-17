@@ -23,8 +23,8 @@ fn main() -> miette::Result<()> {
         let searcher = Searcher::new(protocol);
 
         let attack = searcher.find_attack(SearchOptions {
-            num_sessions: 3,
-            include_intruder: false,
+            num_sessions: 1,
+            include_intruder: true,
         });
 
         println!("{attack:#?}");

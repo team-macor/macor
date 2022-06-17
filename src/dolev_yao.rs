@@ -53,7 +53,7 @@ impl<'a> From<Vec<ast::Message<&'a str>>> for Knowledge<UntypedStage<'a>> {
     }
 }
 
-pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>) -> bool {
+pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>) -> bool {
     let mut stack = vec![goal];
     while let Some(message) = stack.pop() {
         if knowledge.0.contains(message) {
@@ -105,7 +105,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
 
                     let (message, key) = (&args[0], &args[1]);
 
-                    if composition_search(knowledge, key) {
+                    if can_derive(knowledge, key) {
                         new_messages.push(message.clone());
                     }
                 }
@@ -126,7 +126,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
                         new_messages.push(message.clone());
                     }
 
-                    if composition_search(
+                    if can_derive(
                         knowledge,
                         &Message::Composition {
                             func: Func::Inv,
@@ -250,7 +250,7 @@ mod tests {
 
         let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, h"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
-        assert!(composition_search(&knowledge, &goal));
+        assert!(can_derive(&knowledge, &goal));
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,n2), {|n2|}k3, h");
         // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
-        assert!(!composition_search(&knowledge, &goal));
+        assert!(!can_derive(&knowledge, &goal));
     }
 
     #[test]
@@ -286,7 +286,7 @@ mod tests {
 
         let knowledge = knowledge(&mut ctx, "k1, k2");
 
-        assert!(!composition_search(&knowledge, &goal));
+        assert!(!can_derive(&knowledge, &goal));
     }
 
     #[test]

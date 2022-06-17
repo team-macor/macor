@@ -178,6 +178,7 @@ impl Message<UntypedStage<'_>> {
                 }
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
+            Message::Lazy(_) => unreachable!("Layzies should not happen at this stage"),
             // TODO: Check that func is defined as a function
             // TODO: Check that it is implemented correctly :)
             Message::Composition { func, args } => match func {

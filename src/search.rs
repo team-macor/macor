@@ -6,19 +6,19 @@ use itertools::Itertools;
 use crate::{
     dolev_yao::Knowledge,
     protocol::{
-        ActorKind, Constant, Goal, InstanceName, Message, Nonce, PacketPattern, Protocol,
+        ActorKind, Constant, Goal, InstanceName, LazyId, Message, Nonce, PacketPattern, Protocol,
         Recipient, SessionId, Variable,
     },
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SubstitutionTable {
-    pub table: IndexMap<Variable, Message>,
+    pub variables: IndexMap<Variable, Message>,
 }
 
 impl From<IndexMap<Variable, Message>> for SubstitutionTable {
-    fn from(table: IndexMap<Variable, Message>) -> Self {
-        Self { table }
+    fn from(variables: IndexMap<Variable, Message>) -> Self {
+        Self { variables }
     }
 }
 
@@ -28,14 +28,14 @@ impl IntoIterator for SubstitutionTable {
     type IntoIter = indexmap::map::IntoIter<Variable, Message>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.table.into_iter()
+        self.variables.into_iter()
     }
 }
 
 impl SubstitutionTable {
     fn is_consistent(&self, other: &SubstitutionTable) -> bool {
-        for (var, msg) in &other.table {
-            if let Some(our_msg) = self.table.get(var) {
+        for (var, msg) in &other.variables {
+            if let Some(our_msg) = self.variables.get(var) {
                 if our_msg != msg {
                     return false;
                 }
@@ -46,7 +46,7 @@ impl SubstitutionTable {
     }
 
     fn extend(&mut self, other: SubstitutionTable) {
-        self.table.extend(other.table)
+        self.variables.extend(other.variables)
     }
 }
 
@@ -54,14 +54,22 @@ impl SubstitutionTable {
 struct Strand {
     current_execution: usize,
     messages: Rc<Vec<PacketPattern>>,
-    // TODO: Use Rc and Rc::make_mut
-    knowledge: Knowledge,
+    knowledge: Rc<Knowledge>,
     substitutions: SubstitutionTable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum Obligation {
+    CanDerive {
+        with_knowledge: Rc<Knowledge>,
+        lazy: LazyId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct Intruder {
-    knowledge: Knowledge,
+    knowledge: Rc<Knowledge>,
+    obligations: Vec<Obligation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -73,8 +81,7 @@ struct Execution {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Session {
-    // TODO: Use Rc and Rc::make_mut
-    actors: IndexMap<InstanceName, Actor>,
+    actors: Rc<IndexMap<InstanceName, Actor>>,
     goals: Vec<Goal<InstanceName>>,
 }
 
@@ -154,7 +161,7 @@ fn combine_substitutions(a: &[Message], b: &[Message]) -> Result<IndexMap<Variab
 
 impl Packet {
     fn most_general_unifier(&self, other: &Packet) -> Result<SubstitutionTable, ()> {
-        println!("Most general unifier: {:?} {:?}", self, other);
+        // println!("Most general unifier: {:?} {:?}", self, other);
 
         if self.messages.len() != other.messages.len() {
             return Err(());
@@ -189,23 +196,26 @@ impl Packet {
         let messages: Vec<Message> = self
             .messages
             .into_iter()
-            .map(|msg| unify(&msg, unification))
+            .map(|msg| msg.unify(unification))
             .collect();
 
         Packet { messages }
     }
 }
 
-fn unify(msg: &Message, unification: &SubstitutionTable) -> Message {
-    match msg {
-        Message::Variable(var) => unification.table[var].clone(),
-        Message::Constant(_) => msg.clone(),
-        Message::Composition { func, args } => Message::Composition {
-            func: func.clone(),
-            args: args.iter().map(|msg| unify(msg, unification)).collect(),
-        },
-        Message::Tuple(args) => {
-            Message::Tuple(args.iter().map(|arg| unify(arg, unification)).collect())
+impl Message {
+    fn unify(&self, unification: &SubstitutionTable) -> Message {
+        match self {
+            Message::Variable(var) => unification.variables[var].clone(),
+            Message::Constant(_) => self.clone(),
+            Message::Lazy(_) => todo!(),
+            Message::Composition { func, args } => Message::Composition {
+                func: func.clone(),
+                args: args.iter().map(|msg| msg.unify(unification)).collect(),
+            },
+            Message::Tuple(args) => {
+                Message::Tuple(args.iter().map(|arg| arg.unify(unification)).collect())
+            }
         }
     }
 }
@@ -291,14 +301,15 @@ impl Searcher {
                                 .map(|msg| msg.init_all_actors(session_id))
                                 .collect_vec()
                                 .into(),
-                            knowledge: a.initial_knowledge.init_all_actors(session_id),
+                            knowledge: a.initial_knowledge.init_all_actors(session_id).into(),
                             substitutions: Default::default(),
                         },
                         inbox: VecDeque::default(),
                     },
                 )
             })
-            .collect();
+            .collect::<IndexMap<_, _>>()
+            .into();
 
         let goals = self
             .protocol
@@ -342,7 +353,8 @@ impl Searcher {
 
         let exe = Execution {
             intruder: s.include_intruder.then(|| Intruder {
-                knowledge: intruder_knowledge,
+                knowledge: intruder_knowledge.into(),
+                obligations: vec![],
             }),
             trace: vec![],
             sessions,
@@ -358,7 +370,7 @@ impl Searcher {
 
             println!(
                 "solcreme i mit øje 😎👌 {:?}",
-                start.elapsed() / executions_searched
+                start.elapsed() / executions_searched,
             );
 
             if exe.has_attack() {
@@ -397,7 +409,7 @@ impl Execution {
             Some(intruder) => self.sessions.iter().any(|sess| {
                 sess.goals.iter().any(|goal| match goal {
                     Goal::Authenticates(_, _, _) => todo!("only secrecy goals are checked"),
-                    Goal::SecretBetween(_, _, msg) => intruder.knowledge.can_construct(&msg),
+                    Goal::SecretBetween(_, _, msg) => intruder.knowledge.can_construct(msg),
                 })
             }),
             None => false,
@@ -410,22 +422,59 @@ impl Execution {
         }
     }
 
+    /// Adds the message to the inbox of `target` and increments the execution of the sender
     pub fn send_packet(
         &mut self,
         session_id: SessionId,
-        from: &InstanceName,
-        target: &InstanceName,
+        sender: &InstanceName,
+        receiver: &InstanceName,
         packet: Packet,
     ) {
         self.trace
-            .push((session_id, from.clone(), target.clone(), packet.clone()));
+            .push((session_id, sender.clone(), receiver.clone(), packet.clone()));
 
-        self.sessions[session_id.0 as usize]
-            .actors
-            .get_mut(target)
+        Rc::make_mut(&mut self.sessions[session_id.0 as usize].actors)
+            .get_mut(receiver)
             .unwrap()
             .inbox
             .push_back(packet);
+
+        Rc::make_mut(&mut self.sessions[session_id.0 as usize].actors)
+            .get_mut(sender)
+            .unwrap()
+            .strand
+            .current_execution += 1;
+    }
+
+    pub fn receive_packet(
+        &mut self,
+        session_id: SessionId,
+        sender: Option<&InstanceName>,
+        receiver: &InstanceName,
+        packet_pattern: &Packet,
+        packet: Packet,
+    ) {
+        let receiver = Rc::make_mut(&mut self.sessions[session_id.0 as usize].actors)
+            .get_mut(receiver)
+            .unwrap();
+
+        // NOTE: check if packet matches previous Knowledge
+        match packet_pattern.most_general_unifier(&packet) {
+            Ok(unification) => {
+                if !receiver.strand.substitutions.is_consistent(&unification) {
+                    println!("\n{:?}\n{:?}", receiver.strand.substitutions, unification);
+                    self.print_trace();
+                    todo!("actor received some packets which are not consistent with current knowledge");
+                }
+
+                for msg in packet.substitute_unification(&unification) {
+                    Rc::make_mut(&mut receiver.strand.knowledge).augment_with(msg)
+                }
+                receiver.strand.current_execution += 1;
+                receiver.strand.substitutions.extend(unification);
+            }
+            Err(_) => todo!("unification error"),
+        }
     }
 
     pub fn next(&self, ctx: &mut ExecutionContext) -> Vec<Execution> {
@@ -434,8 +483,7 @@ impl Execution {
         for (i_ses, ses) in self.sessions.iter().enumerate() {
             for (actor_key, actor) in ses.actors.iter() {
                 let mut new_execution = self.clone();
-                let new_actor = new_execution.sessions[i_ses]
-                    .actors
+                let new_actor = Rc::make_mut(&mut new_execution.sessions[i_ses].actors)
                     .get_mut(actor_key)
                     .unwrap();
 
@@ -450,35 +498,47 @@ impl Execution {
 
                 match &actor.strand.messages[actor.strand.current_execution] {
                     PacketPattern::Ingoing(packet_pattern) => {
-                        // TODO: Can intruder send?
-
                         if let Some(packet) = new_actor.inbox.pop_front() {
-                            // check if packet matches previous Knowledge
+                            // TODO: Don't modify new_execution
+                            new_execution.receive_packet(
+                                SessionId(i_ses as _),
+                                None,
+                                &actor.name,
+                                packet_pattern,
+                                packet,
+                            );
 
-                            match packet_pattern.most_general_unifier(&packet) {
-                                Ok(unification) => {
-                                    if !new_actor.strand.substitutions.is_consistent(&unification) {
-                                        println!(
-                                            "\n{:?}\n{:?}",
-                                            new_actor.strand.substitutions, unification
-                                        );
-                                        self.print_trace();
-                                        todo!("actor received some packets which are not consistent with current knowledge");
-                                        // eprintln!("actor received some packets which are not consistent with current knowledge");
-                                        continue;
-                                    }
+                            if &new_execution != self {
+                                next.push(new_execution.clone());
+                            }
+                        }
 
-                                    for msg in packet.substitute_unification(&unification) {
-                                        new_actor.strand.knowledge.augment_with(msg)
-                                    }
-                                    new_actor.strand.current_execution += 1;
-                                    new_actor.strand.substitutions.extend(unification);
+                        // TODO: Can intruder send?
+                        if let Some(intruder) = new_execution.intruder.as_mut() {
+                            let intruder_packet = packet_pattern
+                                .iter()
+                                .map(|_| {
+                                    // TODO: Don't use lazy 0
+                                    let lid = LazyId(0);
+                                    intruder.obligations.push(Obligation::CanDerive {
+                                        with_knowledge: intruder.knowledge.clone(),
+                                        lazy: lid.clone(),
+                                    });
+                                    Message::Lazy(lid)
+                                })
+                                .collect();
 
-                                    if &new_execution != self {
-                                        next.push(new_execution);
-                                    }
-                                }
-                                Err(_) => todo!("unification error"),
+                            new_execution.receive_packet(
+                                SessionId(i_ses as _),
+                                Some(&InstanceName::Intruder),
+                                &actor.name,
+                                packet_pattern,
+                                intruder_packet,
+                            );
+
+                            if &new_execution != self {
+                                todo!();
+                                next.push(new_execution.clone());
                             }
                         }
                     }
@@ -489,22 +549,22 @@ impl Execution {
                         };
 
                         if let Some(new_packet) = new_actor.strand.initiate(ctx, packet) {
-                            if let Some(i) = new_execution.intruder.as_mut() {
-                                for msg in new_packet.iter() {
-                                    i.knowledge.augment_with(msg.clone());
-                                }
+                            // if let Some(i) = new_execution.intruder.as_mut() {
+                            //     for msg in new_packet.iter() {
+                            //         Rc::make_mut(&mut i.knowledge).augment_with(msg.clone());
+                            //     }
 
-                                // TODO: This should not result in infinite
-                                //       loops. The case is when i's knowledge
-                                //       does not get extended, and thus is the
-                                //       same as the previous knowledge.
-                                if self != &new_execution {
-                                    // NOTE: A new execution where the recipient does
-                                    // not get the message.
-                                    next.push(new_execution.clone());
-                                    todo!("take me home");
-                                }
-                            }
+                            //     // TODO: This should not result in infinite
+                            //     //       loops. The case is when i's knowledge
+                            //     //       does not get extended, and thus is the
+                            //     //       same as the previous knowledge.
+                            //     if self != &new_execution {
+                            //         // NOTE: A new execution where the recipient does
+                            //         // not get the message.
+                            //         next.push(new_execution.clone());
+                            //         todo!("take me home");
+                            //     }
+                            // }
 
                             // TODO: Why does this target not have a session!
                             if !new_execution.sessions[i_ses].actors.contains_key(target) {
@@ -521,13 +581,6 @@ impl Execution {
                                 target,
                                 new_packet,
                             );
-
-                            new_execution.sessions[i_ses]
-                                .actors
-                                .get_mut(&actor.name)
-                                .unwrap()
-                                .strand
-                                .current_execution += 1;
 
                             if &new_execution != self {
                                 next.push(new_execution);
@@ -590,7 +643,7 @@ impl Strand {
         let new_msg = match msg {
             Message::Variable(var) => {
                 self.substitutions
-                    .table
+                    .variables
                     .entry(var.clone())
                     .or_insert_with_key(|var| match var {
                         Variable::Actor(_) => unreachable!("all actors have been initiated"),
@@ -598,13 +651,14 @@ impl Strand {
                             // TODO: Add marker for which type of variable
                             // the nonce came from
                             let new = Message::Constant(Constant::Nonce(ctx.new_nonce()));
-                            self.knowledge.augment_with(new.clone());
+                            Rc::make_mut(&mut self.knowledge).augment_with(new.clone());
                             new
                         }
                     })
                     .clone()
             }
             Message::Constant(_) => msg.clone(),
+            Message::Lazy(_) => todo!(),
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args

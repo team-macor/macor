@@ -1,4 +1,4 @@
-use std::{hash::Hash, rc::Rc};
+use std::hash::Hash;
 
 use itertools::Itertools;
 use macor_parse::ast::{self, Ident};
@@ -38,10 +38,14 @@ pub enum Func {
     User(Ident<SmolStr>),
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
+pub struct LazyId(pub usize);
+
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub enum Message<S: Stage = TypedStage> {
     Variable(S::Variable),
     Constant(S::Constant),
+    Lazy(LazyId),
     Composition { func: Func, args: Vec<Message<S>> },
     Tuple(Vec<Message<S>>),
 }
@@ -51,6 +55,7 @@ impl<S: Stage> std::fmt::Debug for Message<S> {
         match self {
             Self::Variable(var) => write!(f, "@{var:?}"),
             Self::Constant(c) => write!(f, "#{c:?}"),
+            Self::Lazy(lid) => write!(f, "?{}", lid.0),
             Self::Composition { func, args } => match func {
                 Func::SymEnc => write!(f, "{{| {:?} |}}{:?}", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{ {:?} }}{:?}", args[0], args[1]),
@@ -130,7 +135,7 @@ impl Knowledge<TypedStage> {
         assert_eq!(self, &augmented);
 
         // NOTE: Assume that augment_knowledge has already been called :)
-        dolev_yao::composition_search(self, msg)
+        dolev_yao::can_derive(self, msg)
     }
 }
 
@@ -157,7 +162,7 @@ impl Message<TypedStage> {
             Message::Variable(Variable::Actor(a)) if a == from => {
                 Message::Constant(Constant::Instance(to))
             }
-            Message::Variable(_) | Message::Constant(_) => self.clone(),
+            Message::Variable(_) | Message::Constant(_) | Message::Lazy(_) => self.clone(),
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args
@@ -174,11 +179,12 @@ impl Message<TypedStage> {
     }
     pub fn perform_substitutions(&self, subs: &SubstitutionTable) -> Message<TypedStage> {
         let res = match self {
-            Message::Variable(var) => match subs.table.get(var) {
+            Message::Variable(var) => match subs.variables.get(var) {
                 Some(m) => m.clone(),
                 None => self.clone(),
             },
             Message::Constant(_) => self.clone(),
+            Message::Lazy(_) => todo!(),
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args
@@ -208,7 +214,7 @@ impl Message<TypedStage> {
                 }
                 Variable::SymmetricKey(_) | Variable::Number(_) => self.clone(),
             },
-            Message::Constant(_) => self.clone(),
+            Message::Constant(_) | Message::Lazy(_) => self.clone(),
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args
