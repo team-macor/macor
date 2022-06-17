@@ -1,10 +1,10 @@
 use std::{hash::Hash, rc::Rc};
 
 use itertools::Itertools;
+use macor_parse::ast::{self, Ident};
 use smol_str::SmolStr;
 
 use crate::{
-    ast::{self, Ident},
     dolev_yao::{self, Knowledge},
     search::{Packet, SubstitutionTable},
     typing::{Stage, Type, TypedStage, TypingContext, TypingError, UntypedStage},
@@ -30,27 +30,20 @@ pub enum InstanceName {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub struct Func(pub Ident<SmolStr>);
+pub enum Func {
+    SymEnc,
+    AsymEnc,
+    Exp,
+    Inv,
+    User(Ident<SmolStr>),
+}
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub enum Message<S: Stage = TypedStage> {
     Variable(S::Variable),
     Constant(S::Constant),
-    Composition {
-        func: Func,
-        args: Vec<Message<S>>,
-    },
-    SymEnc {
-        message: Rc<Message<S>>,
-        key: Rc<Message<S>>,
-    },
-    AsymEnc {
-        message: Rc<Message<S>>,
-        key: Rc<Message<S>>,
-    },
+    Composition { func: Func, args: Vec<Message<S>> },
     Tuple(Vec<Message<S>>),
-    Inverse(Rc<Message<S>>),
-    Exp(Rc<Message<S>>),
 }
 
 impl<S: Stage> std::fmt::Debug for Message<S> {
@@ -58,14 +51,14 @@ impl<S: Stage> std::fmt::Debug for Message<S> {
         match self {
             Self::Variable(var) => write!(f, "@{var:?}"),
             Self::Constant(c) => write!(f, "#{c:?}"),
-            Self::Composition { func, args } => {
-                write!(f, "{}({:?})", func.0, args.iter().format(", "))
-            }
-            Self::SymEnc { message, key } => write!(f, "{{| {:?} |}}{:?}", message, key),
-            Self::AsymEnc { message, key } => write!(f, "{{ {:?} }}{:?}", message, key),
+            Self::Composition { func, args } => match func {
+                Func::SymEnc => write!(f, "{{| {:?} |}}{:?}", args[0], args[1]),
+                Func::AsymEnc => write!(f, "{{ {:?} }}{:?}", args[0], args[1]),
+                Func::Inv => f.debug_tuple("Inverse").field(&args[0]).finish(),
+                Func::Exp => f.debug_tuple("Exp").field(&args[0]).finish(),
+                Func::User(name) => write!(f, "{}({:?})", name, args.iter().format(", ")),
+            },
             Self::Tuple(ts) => write!(f, ":({:?})", ts.iter().format(", ")),
-            Self::Inverse(arg0) => f.debug_tuple("Inverse").field(arg0).finish(),
-            Self::Exp(arg0) => f.debug_tuple("Exp").field(arg0).finish(),
         }
     }
 }
@@ -74,21 +67,33 @@ impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
     fn from(message: ast::Message<&'a str>) -> Self {
         match message {
             ast::Message::Var(var) => Self::Variable(var.clone()),
-            ast::Message::Fun(name, args) => Self::Composition {
-                func: Func(name.convert()),
-                args: args.into_iter().map(Message::from).collect(),
+            ast::Message::Fun(name, args) => match name.as_str() {
+                "inv" => Self::Composition {
+                    func: Func::Inv,
+                    args: args.into_iter().map_into().collect(),
+                },
+                "exp" => Self::Composition {
+                    func: Func::Exp,
+                    args: args.into_iter().map_into().collect(),
+                },
+                _ => Self::Composition {
+                    func: Func::User(name.convert()),
+                    args: args.into_iter().map_into().collect(),
+                },
             },
-            ast::Message::SymEnc(messages, key) => Self::SymEnc {
-                message: Rc::new(Message::Tuple(
-                    messages.into_iter().map(Message::from).collect(),
-                )),
-                key: Rc::new(Message::from(*key)),
+            ast::Message::SymEnc(messages, key) => Self::Composition {
+                func: Func::SymEnc,
+                args: vec![
+                    Message::Tuple(messages.into_iter().map_into().collect()),
+                    Message::from(*key),
+                ],
             },
-            ast::Message::AsymEnc(messages, key) => Self::AsymEnc {
-                message: Rc::new(Message::Tuple(
-                    messages.into_iter().map(Message::from).collect(),
-                )),
-                key: Rc::new(Message::from(*key)),
+            ast::Message::AsymEnc(messages, key) => Self::Composition {
+                func: Func::AsymEnc,
+                args: vec![
+                    Message::Tuple(messages.into_iter().map_into().collect()),
+                    Message::from(*key),
+                ],
             },
         }
     }
@@ -160,21 +165,11 @@ impl Message<TypedStage> {
                     .map(|arg| arg.substitute_actor_instance(from, to.clone()))
                     .collect(),
             },
-            Message::SymEnc { message, key } => Message::SymEnc {
-                message: Rc::new(message.substitute_actor_instance(from, to.clone())),
-                key: Rc::new(key.substitute_actor_instance(from, to)),
-            },
-            Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: Rc::new(message.substitute_actor_instance(from, to.clone())),
-                key: Rc::new(key.substitute_actor_instance(from, to)),
-            },
             Message::Tuple(ts) => Message::Tuple(
                 ts.iter()
                     .map(|t| t.substitute_actor_instance(from, to.clone()))
                     .collect(),
             ),
-            Message::Inverse(i) => Message::Inverse(Rc::new(i.substitute_actor_instance(from, to))),
-            Message::Exp(x) => Message::Exp(Rc::new(x.substitute_actor_instance(from, to))),
         }
     }
     pub fn perform_substitutions(&self, subs: &SubstitutionTable) -> Message<TypedStage> {
@@ -188,22 +183,12 @@ impl Message<TypedStage> {
                 func: func.clone(),
                 args: args
                     .iter()
-                    .map(|msg| msg.perform_substitutions(subs))
+                    .map(|arg| arg.perform_substitutions(subs))
                     .collect(),
-            },
-            Message::SymEnc { message, key } => Message::SymEnc {
-                message: Rc::new(message.perform_substitutions(subs)),
-                key: Rc::new(key.perform_substitutions(subs)),
-            },
-            Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: Rc::new(message.perform_substitutions(subs)),
-                key: Rc::new(key.perform_substitutions(subs)),
             },
             Message::Tuple(ts) => {
                 Message::Tuple(ts.iter().map(|t| t.perform_substitutions(subs)).collect())
             }
-            Message::Inverse(i) => Message::Inverse(Rc::new(i.perform_substitutions(subs))),
-            Message::Exp(x) => Message::Exp(Rc::new(x.perform_substitutions(subs))),
         };
 
         res
@@ -231,19 +216,9 @@ impl Message<TypedStage> {
                     .map(|arg| arg.init_all_actors(session_id))
                     .collect(),
             },
-            Message::SymEnc { message, key } => Message::SymEnc {
-                message: Rc::new(message.init_all_actors(session_id)),
-                key: Rc::new(key.init_all_actors(session_id)),
-            },
-            Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: Rc::new(message.init_all_actors(session_id)),
-                key: Rc::new(key.init_all_actors(session_id)),
-            },
             Message::Tuple(ts) => {
                 Message::Tuple(ts.iter().map(|t| t.init_all_actors(session_id)).collect())
             }
-            Message::Inverse(x) => Message::Inverse(Rc::new(x.init_all_actors(session_id))),
-            Message::Exp(x) => Message::Exp(Rc::new(x.init_all_actors(session_id))),
         }
     }
 }
@@ -378,10 +353,10 @@ impl Protocol {
 }
 impl Func {
     pub(crate) fn is_public(&self) -> bool {
-        #[allow(clippy::match_like_matches_macro)]
-        match self.0.as_str() {
-            "exp" => true,
-            _ => false,
+        match self {
+            Func::SymEnc | Func::AsymEnc | Func::Exp => true,
+            Func::Inv => false,
+            Func::User(_) => false,
         }
     }
 }

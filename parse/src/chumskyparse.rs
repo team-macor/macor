@@ -132,7 +132,7 @@ fn ident_parser() -> impl Parser<Token, Ident<String>, Error = Simple<Token>> + 
     select! { Token::Ident(var) => var.as_str().into() }
 }
 
-pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<Token>> + Clone {
+pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<Token>> {
     let protocol_name = just(Token::Protocol)
         .then(just(Token::Colon))
         .then(ident_parser())
@@ -240,7 +240,18 @@ pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<
 }
 
 pub fn parse_document(src: &str) -> (Option<Document<String>>, Vec<Simple<String>>) {
-    let (tokens, errs) = lexer().parse_recovery(src);
+    #[allow(clippy::type_complexity)]
+    static LEXER: once_cell::sync::Lazy<
+        std::sync::Arc<dyn Parser<char, Vec<(Token, Span)>, Error = Simple<char>> + Send + Sync>,
+    > = once_cell::sync::Lazy::new(|| std::sync::Arc::new(lexer()));
+
+    // TODO: The document_parser does not implement Send + Sync since it uses
+    // the recursive combinator
+    // static PARSER: once_cell::sync::Lazy<
+    //     std::sync::Arc<dyn Parser<Token, Document<String>, Error = Simple<Token>> + Send + Sync>,
+    // > = once_cell::sync::Lazy::new(|| std::sync::Arc::new(document_parser()));
+
+    let (tokens, errs) = LEXER.parse_recovery(src);
 
     let tokens = if let Some(tokens) = tokens {
         tokens
@@ -275,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_chomsky_message() {
-        let src = include_str!("../example_programs/KeyEx1.AnB");
+        let src = include_str!("../../example_programs/KeyEx1.AnB");
         let (tokens, errs) = lexer().parse_recovery(src);
 
         let _ = tokens

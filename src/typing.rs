@@ -1,9 +1,9 @@
 use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 
+use macor_parse::ast::Ident;
 use miette::SourceSpan;
 
 use crate::{
-    ast::Ident,
     dolev_yao::Knowledge,
     protocol::{ActorName, Constant, Func, Message, Variable},
 };
@@ -114,9 +114,13 @@ impl Message<UntypedStage<'_>> {
             Message::Variable(name) => {
                 // NOTE: Built-ins
                 match name.as_str() {
-                    "inv" | "exp" => {
+                    "inv" => {
                         // TODO
-                        return Message::Constant(Constant::Function(Func(name.convert())));
+                        return Message::Constant(Constant::Function(Func::Inv));
+                    }
+                    "exp" => {
+                        // TODO
+                        return Message::Constant(Constant::Function(Func::Exp));
                     }
                     _ => {}
                 }
@@ -160,7 +164,7 @@ impl Message<UntypedStage<'_>> {
                                     err_span: name.span(),
                                 });
                             }
-                            Message::Constant(Constant::Function(Func(name.convert())))
+                            Message::Constant(Constant::Function(Func::User(name.convert())))
                         }
                     }
                 } else {
@@ -176,54 +180,55 @@ impl Message<UntypedStage<'_>> {
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
             // TODO: Check that func is defined as a function
             // TODO: Check that it is implemented correctly :)
-            Message::Composition { func, args } => {
-                match func.0.as_str() {
-                    "inv" | "exp" => {
-                        return Message::Composition {
-                            func: func.clone(),
-                            args: args.iter().map(|x| x.to_typed(ctx)).collect(),
-                        }
+            Message::Composition { func, args } => match func {
+                Func::SymEnc | Func::AsymEnc | Func::Exp => {
+                    if args.len() != 2 {
+                        todo!()
                     }
-                    _ => {}
-                }
 
-                if let Some(ty) = ctx.lookup(func.0.as_str()) {
-                    match ty {
-                        Type::Function => {}
-                        _ => {
-                            ctx.errors.push(TypingError::NotAFunction {
-                                src: ctx.src(),
-                                func: func.0.to_string(),
-                                actual_ty: ty,
-                                err_span: func.0.span(),
-                            });
-                        }
+                    Message::Composition {
+                        func: func.clone(),
+                        args: args.iter().map(|x| x.to_typed(ctx)).collect(),
                     }
-                } else {
-                    // panic!("name '{name}' not found in {ctx:?}");
-                    ctx.errors.push(TypingError::NotDeclared {
-                        src: ctx.src(),
-                        name: func.0.to_string(),
-                        err_span: func.0.span(),
-                    });
                 }
+                Func::Inv => {
+                    if args.len() != 1 {
+                        todo!("{args:?}")
+                    }
 
-                Message::Composition {
-                    func: func.clone(),
-                    args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                    Message::Composition {
+                        func: func.clone(),
+                        args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                    }
                 }
-            }
-            Message::SymEnc { message, key } => Message::SymEnc {
-                message: message.to_typed(ctx).into(),
-                key: key.to_typed(ctx).into(),
-            },
-            Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: message.to_typed(ctx).into(),
-                key: key.to_typed(ctx).into(),
+                Func::User(name) => {
+                    if let Some(ty) = ctx.lookup(name.as_str()) {
+                        match ty {
+                            Type::Function => {}
+                            _ => {
+                                ctx.errors.push(TypingError::NotAFunction {
+                                    src: ctx.src(),
+                                    func: name.to_string(),
+                                    actual_ty: ty,
+                                    err_span: name.span(),
+                                });
+                            }
+                        }
+                    } else {
+                        ctx.errors.push(TypingError::NotDeclared {
+                            src: ctx.src(),
+                            name: name.to_string(),
+                            err_span: name.span(),
+                        });
+                    }
+
+                    Message::Composition {
+                        func: Func::User(name.clone()),
+                        args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                    }
+                }
             },
             Message::Tuple(xs) => Message::Tuple(xs.iter().map(|x| x.to_typed(ctx)).collect()),
-            Message::Inverse(x) => Message::Inverse(x.to_typed(ctx).into()),
-            Message::Exp(x) => Message::Exp(x.to_typed(ctx).into()),
         }
     }
 }

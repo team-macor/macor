@@ -1,3 +1,8 @@
+#![feature(box_syntax)]
+
+pub mod ast;
+pub mod chumskyparse;
+
 use lalrpop_util::lalrpop_mod;
 use miette::SourceSpan;
 
@@ -107,8 +112,9 @@ pub fn parse_messages(arg: &str) -> Result<Vec<Message<&str>>, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chumskyparse;
 
-    static KEY_EX1: &str = include_str!("../example_programs/KeyEx1.AnB");
+    static KEY_EX1: &str = include_str!("../../example_programs/KeyEx1.AnB");
     #[test]
     fn basic_parser_test() -> miette::Result<()> {
         miette::set_hook(box |_| {
@@ -132,6 +138,21 @@ mod tests {
         assert_eq!(doc.knowledge.agents[1].1.len(), 4);
         assert_eq!(doc.knowledge.agents[2].0.as_str(), "s");
         assert_eq!(doc.knowledge.agents[2].1.len(), 5);
+
+        Ok(())
+    }
+    #[test]
+    fn compare_parsers() -> miette::Result<(), Box<dyn std::error::Error>> {
+        for p in std::fs::read_dir("../example_programs")? {
+            let src = std::fs::read_to_string(p?.path())?;
+
+            let doc = parse_document(&src)?;
+            let doc = doc.map(|s| s.to_string());
+            let (doc2, _errors) = chumskyparse::parse_document(&src);
+            let doc2 = doc2.unwrap();
+
+            assert_eq!(doc, doc2);
+        }
 
         Ok(())
     }

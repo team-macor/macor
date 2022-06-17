@@ -1,5 +1,5 @@
 [package]
-name = "macor"
+name = "macor-parse"
 version = "0.1.0"
 edition = "2021"
 
@@ -19,10 +19,10 @@ thiserror = "1.0.31"
 chumsky = "0.8"
 indexmap = "1.8.2"
 smol_str = "0.1.23"
-macor-parse = { path = "parse" }
 
-[profile.release]
-debug = true
+[dev-dependencies]
+criterion = "0.3"
 
-[workspace]
-members = ["lsp", "parse"]
+[[bench]]
+name = "speed_benchmark"
+harness = false

@@ -54,6 +54,7 @@ impl SubstitutionTable {
 struct Strand {
     current_execution: usize,
     messages: Rc<Vec<PacketPattern>>,
+    // TODO: Use Rc and Rc::make_mut
     knowledge: Knowledge,
     substitutions: SubstitutionTable,
 }
@@ -72,6 +73,7 @@ struct Execution {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Session {
+    // TODO: Use Rc and Rc::make_mut
     actors: IndexMap<InstanceName, Actor>,
     goals: Vec<Goal<InstanceName>>,
 }
@@ -117,46 +119,13 @@ fn most_general_unifier(a: &Message, b: &Message) -> Result<SubstitutionTable, (
                 return Err(());
             }
 
-            if func1.0 != func2.0 {
+            if func1 != func2 {
                 return Err(());
             }
 
             let substitutions = combine_substitutions(args1, args2)?;
 
             Ok(substitutions.into())
-        }
-        (Message::Composition { func: _, args: _ }, Message::SymEnc { message: _, key: _ })
-        | (Message::SymEnc { message: _, key: _ }, Message::Composition { func: _, args: _ })
-        | (Message::Composition { func: _, args: _ }, Message::AsymEnc { message: _, key: _ })
-        | (Message::AsymEnc { message: _, key: _ }, Message::Composition { func: _, args: _ }) => {
-            Err(()) // TODO: is this correct?
-        }
-        (
-            Message::SymEnc {
-                message: message1,
-                key: key1,
-            },
-            Message::SymEnc {
-                message: message2,
-                key: key2,
-            },
-        )
-        | (
-            Message::AsymEnc {
-                message: message1,
-                key: key1,
-            },
-            Message::AsymEnc {
-                message: message2,
-                key: key2,
-            },
-        ) => {
-            // can we unify the encrypted messages even though we do not know the keys?
-
-            let mut substitutions = most_general_unifier(message1, message2)?;
-            substitutions.extend(most_general_unifier(key1, key2)?);
-
-            Ok(substitutions)
         }
         (a, b) => todo!("unify {:?} with {:?}", a, b),
     }
@@ -235,19 +204,9 @@ fn unify(msg: &Message, unification: &SubstitutionTable) -> Message {
             func: func.clone(),
             args: args.iter().map(|msg| unify(msg, unification)).collect(),
         },
-        Message::SymEnc { message, key } => Message::SymEnc {
-            message: unify(message, unification).into(),
-            key: unify(key, unification).into(),
-        },
-        Message::AsymEnc { message, key } => Message::AsymEnc {
-            message: unify(message, unification).into(),
-            key: unify(key, unification).into(),
-        },
         Message::Tuple(args) => {
             Message::Tuple(args.iter().map(|arg| unify(arg, unification)).collect())
         }
-        Message::Inverse(key) => Message::Inverse(unify(key, unification).into()),
-        Message::Exp(arg) => Message::Exp(unify(arg, unification).into()),
     }
 }
 
@@ -391,8 +350,16 @@ impl Searcher {
 
         execution_queue.push_back(exe);
 
+        let start = std::time::Instant::now();
+        let mut executions_searched = 0;
+
         while let Some(exe) = execution_queue.pop_back() {
-            println!("solcreme i mit øje 😎👌");
+            executions_searched += 1;
+
+            println!(
+                "solcreme i mit øje 😎👌 {:?}",
+                start.elapsed() / executions_searched
+            );
 
             if exe.has_attack() {
                 return SearchResult::AttackFound;
@@ -645,21 +612,11 @@ impl Strand {
                     .map(|arg| self.initiate_msg(ctx, arg))
                     .collect::<Option<Vec<_>>>()?,
             },
-            Message::SymEnc { message, key } => Message::SymEnc {
-                message: self.initiate_msg(ctx, message)?.into(),
-                key: self.initiate_msg(ctx, key)?.into(),
-            },
-            Message::AsymEnc { message, key } => Message::AsymEnc {
-                message: self.initiate_msg(ctx, message)?.into(),
-                key: self.initiate_msg(ctx, key)?.into(),
-            },
             Message::Tuple(ts) => Message::Tuple(
                 ts.iter()
                     .map(|t| self.initiate_msg(ctx, t))
                     .collect::<Option<Vec<_>>>()?,
             ),
-            Message::Inverse(x) => Message::Inverse(self.initiate_msg(ctx, x)?.into()),
-            Message::Exp(x) => Message::Exp(self.initiate_msg(ctx, x)?.into()),
         };
 
         self.knowledge

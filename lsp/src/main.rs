@@ -8,7 +8,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 #[derive(Debug)]
 struct Backend {
     sources: DashMap<Url, Arc<String>>,
-    asts: DashMap<Url, Arc<macor::ast::Document<String>>>,
+    asts: DashMap<Url, Arc<macor::parse::ast::Document<String>>>,
     client: Client,
 }
 

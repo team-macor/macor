@@ -2,13 +2,19 @@ use std::ops::Deref;
 
 use smol_str::SmolStr;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Document<S: Deref<Target = str>> {
     pub name: Ident<S>,
     pub types: Vec<(TypesKey, Vec<Ident<S>>)>,
     pub knowledge: Knowledge<S>,
     pub actions: Vec<Action<S>>,
     pub goals: Vec<Goal<S>>,
+}
+
+fn x<T: Send + Sync>() {}
+
+fn y() {
+    x::<Document<String>>();
 }
 
 impl<S: Deref<Target = str>> Document<S> {
@@ -27,7 +33,7 @@ impl<S: Deref<Target = str>> Document<S> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypesKey {
     Agent,
     Number,
@@ -36,7 +42,7 @@ pub enum TypesKey {
     Function,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Goal<S: Deref<Target = str>> {
     Authenticates {
         a: Ident<S>,
@@ -73,7 +79,7 @@ impl<S: Deref<Target = str>> Goal<S> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Message<S: Deref<Target = str>> {
     Var(Ident<S>),
     Fun(Ident<S>, Vec<Message<S>>),
@@ -101,7 +107,7 @@ impl<S: Deref<Target = str>> Message<S> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Action<S: Deref<Target = str>> {
     pub from: Ident<S>,
     pub to: Ident<S>,
@@ -118,7 +124,7 @@ impl<S: Deref<Target = str>> Action<S> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Knowledge<S: Deref<Target = str>> {
     pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
     pub wheres: Vec<Where<S>>,
@@ -138,7 +144,7 @@ impl<S: Deref<Target = str>> Knowledge<S> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Where<S: Deref<Target = str>> {
     NotEqual(Ident<S>, Ident<S>),
 }

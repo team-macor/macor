@@ -1,11 +1,20 @@
 use crate::{
-    ast,
-    protocol::{Constant, Message},
+    protocol::{Constant, Func, Message},
     typing::{Stage, TypedStage, UntypedStage},
 };
+use itertools::Itertools;
+use macor_parse::ast;
 
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+#[derive(Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub struct Knowledge<S: Stage = TypedStage>(pub Vec<Message<S>>);
+
+impl<S: Stage> PartialEq for Knowledge<S> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+        // self.0.iter().sorted().dedup().collect_vec()
+        //     == other.0.iter().sorted().dedup().collect_vec()
+    }
+}
 
 impl Knowledge<TypedStage> {
     pub fn new(mut msgs: Vec<Message<TypedStage>>) -> Self {
@@ -59,8 +68,13 @@ pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<Type
         if knowledge.0.contains(message) {
             continue;
         }
+
         match message {
             Message::Composition { func, args } => {
+                if let Func::Inv = func {
+                    return false;
+                }
+
                 if !func.is_public()
                     && !knowledge
                         .0
@@ -78,14 +92,6 @@ pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<Type
                     stack.push(a);
                 }
             }
-            Message::SymEnc { message, key } => {
-                stack.push(message);
-                stack.push(key);
-            }
-            Message::AsymEnc { message, key } => {
-                stack.push(message);
-                stack.push(key);
-            }
             _ => return false,
         }
     }
@@ -93,21 +99,49 @@ pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<Type
 }
 
 pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
+    let mut new_messages: Vec<Message> = Vec::new();
     loop {
-        let mut new_messages: Vec<Message> = Vec::new();
-
         for message in knowledge.iter() {
             match message {
-                Message::SymEnc { message, key } => {
+                Message::Composition {
+                    func: Func::SymEnc,
+                    args,
+                } => {
+                    if args.len() != 2 {
+                        panic!("arguments for symmetric encrypt function must only contain 2 arguments");
+                    }
+
+                    let (message, key) = (&args[0], &args[1]);
+
                     if composition_search(knowledge, key) {
-                        new_messages.push(message.as_ref().clone());
+                        new_messages.push(message.clone());
                     }
                 }
-                Message::AsymEnc { message, key } => {
-                    if let Message::Inverse(_key) = key.as_ref() {
-                        new_messages.push(message.as_ref().clone());
-                    } else if composition_search(knowledge, &Message::Inverse((*key).clone())) {
-                        new_messages.push(message.as_ref().clone());
+                Message::Composition {
+                    func: Func::AsymEnc,
+                    args,
+                } => {
+                    if args.len() != 2 {
+                        panic!("arguments for asymmetric encrypt function must only contain 2 arguments");
+                    }
+                    let (message, key) = (&args[0], &args[1]);
+
+                    if let Message::Composition {
+                        func: Func::Inv,
+                        args: _,
+                    } = key
+                    {
+                        new_messages.push(message.clone());
+                    }
+
+                    if composition_search(
+                        knowledge,
+                        &Message::Composition {
+                            func: Func::Inv,
+                            args: vec![key.clone()],
+                        },
+                    ) {
+                        new_messages.push(message.clone());
                     }
                 }
                 Message::Tuple(messages) => {
@@ -135,10 +169,8 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        parse::{parse_message, parse_messages},
-        typing::{Type, TypingContext, TypingError, UntypedStage},
-    };
+    use crate::typing::{Type, TypingContext, TypingError, UntypedStage};
+    use macor_parse::{parse_message, parse_messages};
 
     fn message(ctx: &mut TypingContext, src: &str) -> Message<TypedStage> {
         let x: Message<UntypedStage> = parse_message(src).unwrap().into();
