@@ -2,19 +2,10 @@ use crate::{
     protocol::{Constant, Func, Message},
     typing::{Stage, TypedStage, UntypedStage},
 };
-use itertools::Itertools;
 use macor_parse::ast;
 
-#[derive(Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+#[derive(Eq, Debug, Clone, PartialOrd, Ord, Hash, PartialEq)]
 pub struct Knowledge<S: Stage = TypedStage>(pub Vec<Message<S>>);
-
-impl<S: Stage> PartialEq for Knowledge<S> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-        // self.0.iter().sorted().dedup().collect_vec()
-        //     == other.0.iter().sorted().dedup().collect_vec()
-    }
-}
 
 impl Knowledge<TypedStage> {
     pub fn new(mut msgs: Vec<Message<TypedStage>>) -> Self {
@@ -92,6 +83,7 @@ pub fn composition_search(knowledge: &Knowledge<TypedStage>, goal: &Message<Type
                     stack.push(a);
                 }
             }
+
             _ => return false,
         }
     }
@@ -163,6 +155,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
         }
 
         knowledge.0.append(&mut new_messages);
+        assert_eq!(new_messages.len(), 0);
     }
 }
 
@@ -255,7 +248,7 @@ mod tests {
 
         let goal = message(&mut ctx, "h(k1, k2)");
 
-        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, h"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
         assert!(composition_search(&knowledge, &goal));
     }
@@ -274,7 +267,8 @@ mod tests {
 
         let goal = message(&mut ctx, "h(k1, k3)");
 
-        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+        let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,n2), {|n2|}k3, h");
+        // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
         assert!(!composition_search(&knowledge, &goal));
     }
@@ -307,25 +301,25 @@ mod tests {
             .functions(["k1", "k2", "k3"])
             .build();
 
-        let mut q1 = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3");
+        let mut q1 = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, h");
         augment_knowledge(&mut q1);
 
         assert_eq!(
             q1,
             knowledge(
                 &mut ctx,
-                "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, n1, k3, n1, k3, n2"
+                "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, n1, k3, n2, h"
             )
         );
 
-        let mut q2 = knowledge(&mut ctx, "k1, &mut ctx, k2, {|n1, k3|}h(k1,k2), {|n2|}k3 ");
+        let mut q2 = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, h");
         augment_knowledge(&mut q2);
 
         assert_eq!(
             q2,
             knowledge(
                 &mut ctx,
-                "k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3, n1, k3, n1, k3, n2"
+                "k1, k2, {|n1, k3|}h(k1, k2), {|n2|}k3, n1, k3, n1, k3, n2, h"
             )
         );
     }
