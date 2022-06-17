@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn non_provable_composition() {
         /*
-           init knowledge: {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
+           init knowledge: {k1, k2, {|<n1, k3>|}h(k1,n2), {|n2|}k3 }
            goal: h(k_1, k_3)
         */
         let mut ctx = init_ctx()
