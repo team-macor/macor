@@ -11,12 +11,6 @@ pub struct Document<S: Deref<Target = str>> {
     pub goals: Vec<Goal<S>>,
 }
 
-fn x<T: Send + Sync>() {}
-
-fn y() {
-    x::<Document<String>>();
-}
-
 impl<S: Deref<Target = str>> Document<S> {
     pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Document<T> {
         Document {
