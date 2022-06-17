@@ -137,9 +137,7 @@ impl Backend {
     async fn handle_change(&self, uri: Url, text: String) {
         let text = Arc::new(text);
         self.sources.insert(uri.clone(), text.clone());
-        // TODO: This should not be static
-        let text = Box::leak(text.to_string().into_boxed_str());
-        let ast = match macor::parse_document(text) {
+        let ast = match macor::parse_document(&text) {
             Ok(ast) => ast,
             Err(err) => {
                 let diagnostics = self.diagnostic_into_lsp(&uri, &err);
