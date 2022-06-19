@@ -137,12 +137,6 @@ struct VariableKey {
 
 #[derive(Debug, Default, Clone)]
 pub struct Unifier {
-    next_constant: u32,
-    actor_table: Rc<IndexMap<SmallStr, ConstantId>>,
-    func_table: Rc<IndexMap<Func, MessageId>>,
-    global_constant_table: Rc<IndexMap<SmallStr, MessageId>>,
-    constant_table: Rc<IndexMap<VariableKey, MessageId>>,
-    variable_table: Rc<IndexMap<VariableKey, MessageId>>,
     table: InPlaceUnificationTable<MessageId>,
 }
 
@@ -217,147 +211,6 @@ impl Unifier {
             )),
         }
     }
-
-    pub fn get_actor(&mut self, agent: &str) -> ConstantId {
-        // TODO: ???
-        let mid = self.register_global_constant(agent);
-        if let Message::Constant(c) = self.table.probe_value(mid) {
-            c
-        } else {
-            unreachable!()
-        }
-        // TODO: ???
-        // *self.actor_table.entry(agent.into()).or_insert_with(|| {
-        //     let cid = ConstantId(self.next_constant, Some(leak_str(agent)));
-        //     self.next_constant += 1;
-        //     cid
-        // })
-    }
-    pub fn get_function_constant(&mut self, func: Func) -> MessageId {
-        *Rc::make_mut(&mut self.func_table)
-            .entry(func.clone())
-            .or_insert_with(|| {
-                let cid = ConstantId(self.next_constant, Some(leak_str(&format!("{:?}", func))));
-                self.next_constant += 1;
-                self.table.new_key(Message::Constant(cid))
-            })
-    }
-
-    pub fn register_global_constant(&mut self, constant_name: &str) -> MessageId {
-        *Rc::make_mut(&mut self.global_constant_table)
-            .entry(constant_name.into())
-            .or_insert_with(|| {
-                let cid = ConstantId(self.next_constant, Some(leak_str(constant_name)));
-                self.next_constant += 1;
-                self.table.new_key(Message::Constant(cid))
-            })
-    }
-    pub fn register_constant(
-        &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
-        constant_name: &Ident<SmallStr>,
-    ) -> MessageId {
-        *Rc::make_mut(&mut self.constant_table)
-            .entry(VariableKey {
-                session_id,
-                actor: agent.into(),
-                variable: constant_name.into(),
-            })
-            .or_insert_with(|| {
-                let cid = ConstantId(
-                    self.next_constant,
-                    Some(leak_str(&format!(
-                        "{}@{}:{}",
-                        agent, session_id.0, constant_name
-                    ))),
-                );
-                self.next_constant += 1;
-                self.table.new_key(Message::Constant(cid))
-            })
-    }
-    pub fn register_variable(
-        &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
-        variable_name: &Ident<SmallStr>,
-    ) -> MessageId {
-        *Rc::make_mut(&mut self.variable_table)
-            .entry(VariableKey {
-                session_id,
-                actor: agent.into(),
-                variable: variable_name.into(),
-            })
-            .or_insert_with(|| {
-                self.table.new_key(Message::Variable(Some(format!(
-                    "{}@{}:{}",
-                    agent, session_id.0, variable_name
-                ))))
-            })
-    }
-
-    fn initiate_typed_variable(
-        &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
-        initiate: &IndexSet<protocol::Variable>,
-        var: &protocol::Variable,
-    ) -> MessageId {
-        match var {
-            protocol::Variable::Actor(a) => {
-                // TODO: Is it fine to register agents like this??
-                // self.register_variable(agent, session_id, a.0.as_str())
-                // TODO: For now, just fix them so that A will always be A, and B always B
-                self.register_global_constant(a.0.as_str())
-            }
-            protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
-                if initiate.contains(var) {
-                    self.register_constant(agent, session_id, &n.convert())
-                } else {
-                    self.register_variable(agent, session_id, &n.convert())
-                }
-            }
-        }
-    }
-    fn register_typed_message(
-        &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
-        initiate: &IndexSet<protocol::Variable>,
-        msg: protocol::Message,
-    ) -> MessageId {
-        match msg {
-            protocol::Message::Variable(var) => {
-                self.initiate_typed_variable(agent, session_id, initiate, &var)
-            }
-            protocol::Message::Constant(c) => match c {
-                protocol::Constant::Actor(a) => self.register_global_constant(a.0.as_str()),
-                protocol::Constant::Function(f) => self.get_function_constant(f),
-                protocol::Constant::Nonce(_) => todo!(),
-            },
-            protocol::Message::Composition { func, args } => {
-                let msg = Message::Composition(
-                    func,
-                    args.into_iter()
-                        .map(|arg| self.register_typed_message(agent, session_id, initiate, arg))
-                        .collect(),
-                );
-                self.table.new_key(msg)
-            }
-            protocol::Message::Tuple(ts) => {
-                let msg = Message::Tuple(
-                    ts.into_iter()
-                        .map(|t| self.register_typed_message(agent, session_id, initiate, t))
-                        .collect(),
-                );
-                self.table.new_key(msg)
-            }
-        }
-    }
-}
-
-fn leak_str(s: &str) -> &'static str {
-    Box::leak(s.to_string().into_boxed_str())
 }
 
 #[test]
@@ -525,8 +378,179 @@ fn branching_unification() -> Result<(), ()> {
 // ->B: NA_b (2)
 // B->: NA_b (3)
 
-// TODO
-struct Converter {}
+#[derive(Debug)]
+pub struct Converter<'a> {
+    unifier: &'a mut Unifier,
+    mappings: &'a mut Mappings,
+}
+
+#[derive(Debug, Default)]
+pub struct Mappings {
+    next_constant: u32,
+    actor_table: IndexMap<SmallStr, ConstantId>,
+    func_table: IndexMap<Func, MessageId>,
+    global_constant_table: IndexMap<SmallStr, MessageId>,
+    constant_table: IndexMap<VariableKey, MessageId>,
+    variable_table: IndexMap<VariableKey, MessageId>,
+}
+
+impl<'a> Converter<'a> {
+    pub fn new(unifier: &'a mut Unifier, mappings: &'a mut Mappings) -> Self {
+        Self { unifier, mappings }
+    }
+
+    pub fn get_actor(&mut self, agent: &str) -> ConstantId {
+        // TODO: ???
+        let mid = self.register_global_constant(agent);
+        if let Message::Constant(c) = self.unifier.table.probe_value(mid) {
+            c
+        } else {
+            unreachable!()
+        }
+        // TODO: ???
+        // *self.actor_table.entry(agent.into()).or_insert_with(|| {
+        //     let cid = ConstantId(self.mapper.next_constant, Some(leak_str(agent)));
+        //     self.mapper.next_constant += 1;
+        //     cid
+        // })
+    }
+    pub fn get_function_constant(&mut self, func: Func) -> MessageId {
+        *self
+            .mappings
+            .func_table
+            .entry(func.clone())
+            .or_insert_with(|| {
+                let cid = ConstantId(
+                    self.mappings.next_constant,
+                    Some(leak_str(&format!("{:?}", func))),
+                );
+                self.mappings.next_constant += 1;
+                self.unifier.table.new_key(Message::Constant(cid))
+            })
+    }
+
+    pub fn register_global_constant(&mut self, constant_name: &str) -> MessageId {
+        *self
+            .mappings
+            .global_constant_table
+            .entry(constant_name.into())
+            .or_insert_with(|| {
+                let cid = ConstantId(self.mappings.next_constant, Some(leak_str(constant_name)));
+                self.mappings.next_constant += 1;
+                self.unifier.table.new_key(Message::Constant(cid))
+            })
+    }
+    pub fn register_constant(
+        &mut self,
+        agent: &Ident<SmallStr>,
+        session_id: SessionId,
+        constant_name: &Ident<SmallStr>,
+    ) -> MessageId {
+        *self
+            .mappings
+            .constant_table
+            .entry(VariableKey {
+                session_id,
+                actor: agent.into(),
+                variable: constant_name.into(),
+            })
+            .or_insert_with(|| {
+                let cid = ConstantId(
+                    self.mappings.next_constant,
+                    Some(leak_str(&format!(
+                        "{}@{}:{}",
+                        agent, session_id.0, constant_name
+                    ))),
+                );
+                self.mappings.next_constant += 1;
+                self.unifier.table.new_key(Message::Constant(cid))
+            })
+    }
+    pub fn register_variable(
+        &mut self,
+        agent: &Ident<SmallStr>,
+        session_id: SessionId,
+        variable_name: &Ident<SmallStr>,
+    ) -> MessageId {
+        *self
+            .mappings
+            .variable_table
+            .entry(VariableKey {
+                session_id,
+                actor: agent.into(),
+                variable: variable_name.into(),
+            })
+            .or_insert_with(|| {
+                self.unifier.table.new_key(Message::Variable(Some(format!(
+                    "{}@{}:{}",
+                    agent, session_id.0, variable_name
+                ))))
+            })
+    }
+
+    fn initiate_typed_variable(
+        &mut self,
+        agent: &Ident<SmallStr>,
+        session_id: SessionId,
+        initiate: &IndexSet<protocol::Variable>,
+        var: &protocol::Variable,
+    ) -> MessageId {
+        match var {
+            protocol::Variable::Actor(a) => {
+                // TODO: Is it fine to register agents like this??
+                // self.register_variable(agent, session_id, a.0.as_str())
+                // TODO: For now, just fix them so that A will always be A, and B always B
+                self.register_global_constant(a.0.as_str())
+            }
+            protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
+                if initiate.contains(var) {
+                    self.register_constant(agent, session_id, &n.convert())
+                } else {
+                    self.register_variable(agent, session_id, &n.convert())
+                }
+            }
+        }
+    }
+    fn register_typed_message(
+        &mut self,
+        agent: &Ident<SmallStr>,
+        session_id: SessionId,
+        initiate: &IndexSet<protocol::Variable>,
+        msg: protocol::Message,
+    ) -> MessageId {
+        match msg {
+            protocol::Message::Variable(var) => {
+                self.initiate_typed_variable(agent, session_id, initiate, &var)
+            }
+            protocol::Message::Constant(c) => match c {
+                protocol::Constant::Actor(a) => self.register_global_constant(a.0.as_str()),
+                protocol::Constant::Function(f) => self.get_function_constant(f),
+                protocol::Constant::Nonce(_) => todo!(),
+            },
+            protocol::Message::Composition { func, args } => {
+                let msg = Message::Composition(
+                    func,
+                    args.into_iter()
+                        .map(|arg| self.register_typed_message(agent, session_id, initiate, arg))
+                        .collect(),
+                );
+                self.unifier.table.new_key(msg)
+            }
+            protocol::Message::Tuple(ts) => {
+                let msg = Message::Tuple(
+                    ts.into_iter()
+                        .map(|t| self.register_typed_message(agent, session_id, initiate, t))
+                        .collect(),
+                );
+                self.unifier.table.new_key(msg)
+            }
+        }
+    }
+}
+
+fn leak_str(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
+}
 
 #[derive(Debug, Clone)]
 struct Knowledge(Vec<MessageId>);
@@ -557,7 +581,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(protocol: &Protocol, session_id: SessionId, unifier: &mut Unifier) -> Session {
+    pub fn new(protocol: &Protocol, session_id: SessionId, converter: &mut Converter) -> Session {
         let actors = protocol
             .actors
             .iter()
@@ -578,7 +602,7 @@ impl Session {
                     .initial_knowledge
                     .iter()
                     .map(|msg| {
-                        unifier.register_typed_message(
+                        converter.register_typed_message(
                             &actor.name.0,
                             session_id,
                             &initiates,
@@ -588,28 +612,28 @@ impl Session {
                     .collect();
 
                 initial_knowledge.extend(initiates.iter().map(|var| {
-                    unifier.initiate_typed_variable(&actor.name.0, session_id, &initiates, var)
+                    converter.initiate_typed_variable(&actor.name.0, session_id, &initiates, var)
                 }));
 
-                initial_knowledge.sort_unstable_by_key(|msg| unifier.resolve_full(*msg));
+                initial_knowledge.sort_unstable_by_key(|msg| converter.unifier.resolve_full(*msg));
                 initial_knowledge.dedup();
 
                 SessionActor {
                     name: actor.name.0.clone(),
-                    constant: unifier.get_actor(actor.name.0.as_str()),
+                    constant: converter.get_actor(actor.name.0.as_str()),
                     initial_knowledge: Knowledge(initial_knowledge),
                     strand: actor
                         .messages
                         .iter()
                         .map(|pattern| Transaction {
-                            sender: unifier.get_actor(pattern.from.0.as_str()),
-                            receiver: unifier.get_actor(pattern.to.0.as_str()),
+                            sender: converter.get_actor(pattern.from.0.as_str()),
+                            receiver: converter.get_actor(pattern.to.0.as_str()),
                             direction: pattern.direction,
                             messages: pattern
                                 .packet
                                 .iter()
                                 .map(|msg| {
-                                    unifier.register_typed_message(
+                                    converter.register_typed_message(
                                         &actor.name.0,
                                         session_id,
                                         &initiates,
@@ -627,7 +651,7 @@ impl Session {
             .goals
             .iter()
             .filter_map(|goal| match goal {
-                protocol::Goal::SecretBetween(_, msg) => Some(unifier.register_typed_message(
+                protocol::Goal::SecretBetween(_, msg) => Some(converter.register_typed_message(
                     &"Mr. Global🧐".into(),
                     session_id,
                     &Default::default(),
@@ -808,13 +832,12 @@ impl Execution {
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: actor.name.as_str().into(),
-                                                receiver:
-                                                    Some(
-                                                        self.sessions[session_i].actors[receiver_i]
-                                                            .name
-                                                            .as_str()
-                                                            .into(),
-                                                    ),
+                                                receiver: Some(
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .name
+                                                        .as_str()
+                                                        .into(),
+                                                ),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),

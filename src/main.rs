@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use itertools::Itertools;
 use macor::{
-    messages::{self, Execution},
+    messages::{self, Converter, Execution},
     protocol::{Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
@@ -26,8 +26,10 @@ fn main() -> miette::Result<()> {
             Protocol::new(src.clone(), parsed).map_err(|x| x.first().cloned().unwrap())?;
 
         let mut unifier = Default::default();
-        let sessions: std::sync::Arc<Vec<_>> = (0..1)
-            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut unifier))
+        let mut mapper = Default::default();
+        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let sessions: std::sync::Arc<Vec<_>> = (0..2)
+            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();
 
