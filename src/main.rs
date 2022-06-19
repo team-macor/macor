@@ -28,7 +28,7 @@ fn main() -> miette::Result<()> {
         let mut unifier = Default::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
-        let sessions: std::sync::Arc<Vec<_>> = (0..2)
+        let sessions: std::sync::Arc<Vec<_>> = (0..1)
             .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();

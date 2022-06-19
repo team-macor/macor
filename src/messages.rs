@@ -702,6 +702,13 @@ impl Session {
     }
 }
 
+impl Knowledge {
+    fn can_construct(&self, unifier: &mut Unifier, msg: MessageId) -> bool {
+        // todo!()
+        true
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ExecutionActorState {
     id: ConstantId,
@@ -745,6 +752,13 @@ impl Intruder {
                 false
             })
         })
+    }
+
+    fn conforms_to_constraints(&self, unifier: &mut Unifier) -> bool {
+        self.constraints
+            .iter()
+            .map(|r| r.as_ref())
+            .all(|(k, msgs)| msgs.iter().all(|&msg| k.can_construct(unifier, msg)))
     }
 }
 
@@ -832,12 +846,13 @@ impl Execution {
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: actor.name.as_str().into(),
-                                                receiver: Some(
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .name
-                                                        .as_str()
-                                                        .into(),
-                                                ),
+                                                receiver:
+                                                    Some(
+                                                        self.sessions[session_i].actors[receiver_i]
+                                                            .name
+                                                            .as_str()
+                                                            .into(),
+                                                    ),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -925,6 +940,15 @@ impl Execution {
                             vec![]
                         }
                     })
+            })
+            .filter_map(|mut exe| {
+                if let Some(intruder) = &exe.intruder {
+                    intruder
+                        .conforms_to_constraints(&mut exe.unifier)
+                        .then(|| exe)
+                } else {
+                    Some(exe)
+                }
             })
     }
 
