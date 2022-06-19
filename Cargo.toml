@@ -20,6 +20,8 @@ chumsky = "0.8"
 indexmap = "1.8.2"
 smol_str = "0.1.23"
 macor-parse = { path = "parse" }
+ena = "0.14.0"
+rayon = "1.5.3"
 
 [profile.release]
 debug = true

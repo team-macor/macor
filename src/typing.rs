@@ -131,9 +131,9 @@ impl Message<UntypedStage<'_>> {
                     match ty {
                         Type::Agent => {
                             if is_constant {
-                                Message::Variable(Variable::Actor(ActorName(name.convert())))
-                            } else {
                                 Message::Constant(Constant::Actor(ActorName(name.convert())))
+                            } else {
+                                Message::Variable(Variable::Actor(ActorName(name.convert())))
                             }
                         }
                         Type::SymmetricKey => {
@@ -178,7 +178,6 @@ impl Message<UntypedStage<'_>> {
                 }
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
-            Message::Lazy(_) => unreachable!("Layzies should not happen at this stage"),
             // TODO: Check that func is defined as a function
             // TODO: Check that it is implemented correctly :)
             Message::Composition { func, args } => match func {

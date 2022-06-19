@@ -1,12 +1,12 @@
 use std::hash::Hash;
 
+use indexmap::{indexset, IndexSet};
 use itertools::Itertools;
 use macor_parse::ast::{self, Ident};
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::{self, Knowledge},
-    search::{Packet, SubstitutionTable},
+    dolev_yao::Knowledge,
     typing::{Stage, Type, TypedStage, TypingContext, TypingError, UntypedStage},
 };
 
@@ -21,13 +21,6 @@ impl std::fmt::Debug for ActorName {
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub u32);
-
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub enum InstanceName {
-    Actor(ActorName, SessionId),
-    Constant(ActorName),
-    Intruder,
-}
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Func {
@@ -45,7 +38,6 @@ pub struct LazyId(pub usize);
 pub enum Message<S: Stage = TypedStage> {
     Variable(S::Variable),
     Constant(S::Constant),
-    Lazy(LazyId),
     Composition { func: Func, args: Vec<Message<S>> },
     Tuple(Vec<Message<S>>),
 }
@@ -55,7 +47,6 @@ impl<S: Stage> std::fmt::Debug for Message<S> {
         match self {
             Self::Variable(var) => write!(f, "@{var:?}"),
             Self::Constant(c) => write!(f, "#{c:?}"),
-            Self::Lazy(lid) => write!(f, "?{}", lid.0),
             Self::Composition { func, args } => match func {
                 Func::SymEnc => write!(f, "{{| {:?} |}}{:?}", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{ {:?} }}{:?}", args[0], args[1]),
@@ -104,41 +95,6 @@ impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
     }
 }
 
-impl Knowledge<TypedStage> {
-    pub fn substitute_actor_instance(
-        &self,
-        from: &ActorName,
-        to: InstanceName,
-    ) -> Knowledge<TypedStage> {
-        let messages = self
-            .iter()
-            .map(|message| message.substitute_actor_instance(from, to.clone()))
-            .collect();
-        Knowledge::new(messages)
-    }
-
-    pub fn init_all_actors(&self, session_id: SessionId) -> Knowledge<TypedStage> {
-        Knowledge::new(
-            self.iter()
-                .map(|msg| msg.init_all_actors(session_id))
-                .collect(),
-        )
-    }
-
-    pub fn can_verify(&self, msg: &Message) -> bool {
-        self.can_construct(msg)
-    }
-    pub fn can_construct(&self, msg: &Message) -> bool {
-        // TODO: Remove this when found to be not a problem :)
-        let mut augmented = self.clone();
-        dolev_yao::augment_knowledge(&mut augmented);
-        assert_eq!(self, &augmented);
-
-        // NOTE: Assume that augment_knowledge has already been called :)
-        dolev_yao::can_derive(self, msg)
-    }
-}
-
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Variable {
     Actor(ActorName),
@@ -148,7 +104,6 @@ pub enum Variable {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Constant {
     Actor(ActorName),
-    Instance(InstanceName),
     Function(Func),
     Nonce(Nonce),
 }
@@ -156,89 +111,56 @@ pub enum Constant {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub struct Nonce(pub u32);
 
-impl Message<TypedStage> {
-    fn substitute_actor_instance(&self, from: &ActorName, to: InstanceName) -> Message<TypedStage> {
-        match self {
-            Message::Variable(Variable::Actor(a)) if a == from => {
-                Message::Constant(Constant::Instance(to))
-            }
-            Message::Variable(_) | Message::Constant(_) | Message::Lazy(_) => self.clone(),
-            Message::Composition { func, args } => Message::Composition {
-                func: func.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| arg.substitute_actor_instance(from, to.clone()))
-                    .collect(),
-            },
-            Message::Tuple(ts) => Message::Tuple(
-                ts.iter()
-                    .map(|t| t.substitute_actor_instance(from, to.clone()))
-                    .collect(),
-            ),
-        }
-    }
-    pub fn perform_substitutions(&self, subs: &SubstitutionTable) -> Message<TypedStage> {
-        let res = match self {
-            Message::Variable(var) => match subs.variables.get(var) {
-                Some(m) => m.clone(),
-                None => self.clone(),
-            },
-            Message::Constant(_) => self.clone(),
-            Message::Lazy(_) => todo!(),
-            Message::Composition { func, args } => Message::Composition {
-                func: func.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| arg.perform_substitutions(subs))
-                    .collect(),
-            },
-            Message::Tuple(ts) => {
-                Message::Tuple(ts.iter().map(|t| t.perform_substitutions(subs)).collect())
-            }
-        };
+#[derive(Debug, Clone, PartialEq)]
+pub struct Packet {
+    messages: Vec<Message>,
+}
 
-        res
-    }
-    pub fn init_all_actors(&self, session_id: SessionId) -> Message<TypedStage> {
-        match self {
-            Message::Variable(var) => match var {
-                Variable::Actor(a) => {
-                    if a.0.is_constant() {
-                        Message::Constant(Constant::Instance(InstanceName::Constant(a.clone())))
-                    } else {
-                        Message::Constant(Constant::Instance(InstanceName::Actor(
-                            a.clone(),
-                            session_id,
-                        )))
-                    }
-                }
-                Variable::SymmetricKey(_) | Variable::Number(_) => self.clone(),
-            },
-            Message::Constant(_) | Message::Lazy(_) => self.clone(),
-            Message::Composition { func, args } => Message::Composition {
-                func: func.clone(),
-                args: args
-                    .iter()
-                    .map(|arg| arg.init_all_actors(session_id))
-                    .collect(),
-            },
-            Message::Tuple(ts) => {
-                Message::Tuple(ts.iter().map(|t| t.init_all_actors(session_id)).collect())
-            }
+impl FromIterator<Message> for Packet {
+    fn from_iter<T: IntoIterator<Item = Message>>(iter: T) -> Self {
+        Packet {
+            messages: iter.into_iter().collect(),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Recipient {
-    Variable(ActorName),
-    Instance(InstanceName),
+impl IntoIterator for Packet {
+    type Item = Message;
+
+    type IntoIter = std::vec::IntoIter<Message>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.messages.into_iter()
+    }
+}
+impl<'a> IntoIterator for &'a Packet {
+    type Item = &'a Message;
+
+    type IntoIter = std::slice::Iter<'a, Message>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.messages.iter()
+    }
+}
+impl Packet {
+    pub fn iter(&self) -> impl Iterator<Item = &Message> {
+        self.into_iter()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Direction {
+    Ingoing,
+    Outgoing,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum PacketPattern {
-    Ingoing(Packet),
-    Outgoing(Recipient, Packet),
+pub struct PacketPattern {
+    pub from: ActorName,
+    pub to: ActorName,
+    pub direction: Direction,
+    pub packet: Packet,
+    pub initiates: IndexSet<Variable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -267,12 +189,19 @@ pub struct Protocol {
     pub goals: Vec<Goal<ActorName>>,
 }
 
+struct ProtocolAction {
+    from: Ident<SmolStr>,
+    to: Ident<SmolStr>,
+    messages: Vec<Message>,
+    initiates: IndexSet<Variable>,
+}
+
 impl Protocol {
     fn new_protocol_actor(
-        agent: &Ident<&str>,
+        agent: &Ident<SmolStr>,
         knowledge: &[ast::Message<&str>],
         ctx: &mut TypingContext,
-        document: &ast::Document<&str>,
+        actions: &[ProtocolAction],
     ) -> ProtocolActor {
         let k: Knowledge<UntypedStage> = knowledge.into();
 
@@ -284,34 +213,24 @@ impl Protocol {
                 ActorKind::Variable
             },
             initial_knowledge: k.to_typed(ctx),
-            messages: document
-                .actions
+            messages: actions
                 .iter()
                 .filter_map(|a| {
-                    if &a.from == agent {
-                        Some(PacketPattern::Outgoing(
-                            if a.to.is_constant() {
-                                Recipient::Instance(InstanceName::Constant(ActorName(
-                                    a.to.convert(),
-                                )))
-                            } else {
-                                Recipient::Variable(ActorName(a.to.convert()))
-                            },
-                            a.msgs
-                                .iter()
-                                .map(|m| Message::<UntypedStage>::from(m.clone()).to_typed(ctx))
-                                .collect(),
-                        ))
+                    let direction = if &a.from == agent {
+                        Direction::Outgoing
                     } else if &a.to == agent {
-                        Some(PacketPattern::Ingoing(
-                            a.msgs
-                                .iter()
-                                .map(|m| Message::<UntypedStage>::from(m.clone()).to_typed(ctx))
-                                .collect(),
-                        ))
+                        Direction::Ingoing
                     } else {
-                        None
-                    }
+                        return None;
+                    };
+
+                    Some(PacketPattern {
+                        from: ActorName(a.from.convert()),
+                        to: ActorName(a.to.convert()),
+                        direction,
+                        packet: a.messages.iter().cloned().collect(),
+                        initiates: a.initiates.clone(),
+                    })
                 })
                 .collect(),
         }
@@ -338,12 +257,40 @@ impl Protocol {
             src,
         };
 
+        let mut actions = document
+            .actions
+            .iter()
+            .map(|action| ProtocolAction {
+                from: action.from.convert(),
+                to: action.to.convert(),
+                messages: action
+                    .msgs
+                    .iter()
+                    .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                    .collect(),
+                initiates: Default::default(),
+            })
+            .collect_vec();
+
+        let mut seen = IndexSet::<Variable>::default();
+
+        for action in &mut actions {
+            let in_this: IndexSet<Variable> = action
+                .messages
+                .iter()
+                .flat_map(|msg| msg.extract_variables())
+                .collect();
+
+            action.initiates = in_this.difference(&seen).cloned().collect();
+            seen.extend(in_this.into_iter());
+        }
+
         let actors = document
             .knowledge
             .agents
             .iter()
             .map(|(agent, knowledge)| {
-                Self::new_protocol_actor(agent, knowledge, &mut ctx, &document)
+                Self::new_protocol_actor(&agent.convert(), knowledge, &mut ctx, &actions)
             })
             .collect();
 
@@ -366,28 +313,16 @@ impl Func {
         }
     }
 }
-impl ActorName {
-    pub fn initiate_for_session(&self, session_id: SessionId) -> InstanceName {
-        if self.0.is_constant() {
-            InstanceName::Constant(self.clone())
-        } else {
-            InstanceName::Actor(self.clone(), session_id)
+impl Message {
+    fn extract_variables(&self) -> IndexSet<Variable> {
+        match self {
+            Message::Variable(v) => indexset! { v.clone() },
+            Message::Constant(_) => indexset! {},
+            Message::Composition { func: _, args } => args
+                .iter()
+                .flat_map(|arg| arg.extract_variables())
+                .collect(),
+            Message::Tuple(ts) => ts.iter().flat_map(|t| t.extract_variables()).collect(),
         }
     }
 }
-
-// struct FreeId(usize);
-
-// struct MessageRef(usize);
-
-// enum Message {
-//     Free(FreeId),
-//     Just(MessageInner),
-// }
-
-// enum MessageInner {
-//     Composition {
-//         func: Func,
-//         args: Vec<MessageRef>,
-//     },
-// }
