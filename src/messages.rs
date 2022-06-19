@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use crate::protocol::{self, Direction, Func, Protocol, SessionId};
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use itertools::Itertools;
 use macor_parse::ast::Ident;
 use smol_str::SmolStr;
@@ -28,7 +28,7 @@ pub struct MessageId(u32);
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Message<M> {
     Variable(Option<String>),
-    Lazy,
+    Agent(Option<String>),
     Constant(ConstantId),
     Composition(Func, Vec<M>),
     Tuple(Vec<M>),
@@ -44,7 +44,13 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
                     write!(f, "Var")
                 }
             }
-            Self::Lazy => write!(f, "Lazy"),
+            Self::Agent(arg0) => {
+                if let Some(k) = arg0 {
+                    write!(f, "Agent({})", k)
+                } else {
+                    write!(f, "Agent")
+                }
+            }
             Self::Constant(c) => c.fmt(f),
             Self::Composition(fun, args) => {
                 if let Func::User(x) = fun {
@@ -74,13 +80,14 @@ impl UnifyValue for Message<MessageId> {
         use self::Message::*;
 
         Ok(match (l, r) {
-            (Lazy, _) | (_, Lazy) => todo!(),
             (Variable(l), Variable(r)) => Variable(l.clone().or_else(|| r.clone())),
+            (Variable(_), Agent(c)) | (Agent(c), Variable(_)) => Agent(c.clone()),
             (Variable(_), Constant(c)) | (Constant(c), Variable(_)) => Constant(*c),
             (Variable(_), Composition(func, args)) | (Composition(func, args), Variable(_)) => {
                 Composition(func.clone(), args.clone())
             }
             (Variable(_), Tuple(ts)) | (Tuple(ts), Variable(_)) => Tuple(ts.clone()),
+            (Agent(l), Agent(r)) => Agent(l.clone().or_else(|| r.clone())),
             (Constant(l), Constant(r)) => {
                 if l == r {
                     Constant(*l)
@@ -102,12 +109,7 @@ impl UnifyValue for Message<MessageId> {
                     Tuple(ls.clone())
                 }
             }
-            (Constant(_), Composition(_, _))
-            | (Constant(_), Tuple(_))
-            | (Composition(_, _), Constant(_))
-            | (Composition(_, _), Tuple(_))
-            | (Tuple(_), Constant(_))
-            | (Tuple(_), Composition(_, _)) => return Err(()),
+            _ => return Err(()),
         })
     }
 }
@@ -149,8 +151,11 @@ impl Unifier {
 
         Ok(
             match (self.table.probe_value(l), self.table.probe_value(r)) {
-                (Lazy, _) | (_, Lazy) => todo!(),
                 (Variable(_), _) | (_, Variable(_)) => {
+                    self.table.unify_var_var(l, r)?;
+                    l
+                }
+                (Agent(_), Agent(_)) => {
                     self.table.unify_var_var(l, r)?;
                     l
                 }
@@ -188,19 +193,14 @@ impl Unifier {
                         l
                     }
                 }
-                (Constant(_), Composition(_, _))
-                | (Constant(_), Tuple(_))
-                | (Composition(_, _), Constant(_))
-                | (Composition(_, _), Tuple(_))
-                | (Tuple(_), Constant(_))
-                | (Tuple(_), Composition(_, _)) => return Err(()),
+                _ => return Err(()),
             },
         )
     }
     fn resolve_full(&mut self, id: MessageId) -> FullMessage {
         match self.table.probe_value(id) {
             Message::Variable(v) => FullMessage(Message::Variable(v)),
-            Message::Lazy => FullMessage(Message::Lazy),
+            Message::Agent(v) => FullMessage(Message::Agent(v)),
             Message::Constant(c) => FullMessage(Message::Constant(c)),
             Message::Composition(func, args) => FullMessage(Message::Composition(
                 func,
@@ -387,7 +387,7 @@ pub struct Converter<'a> {
 #[derive(Debug, Default)]
 pub struct Mappings {
     next_constant: u32,
-    actor_table: IndexMap<SmallStr, ConstantId>,
+    actor_table: IndexMap<(Option<SessionId>, SmallStr), MessageId>,
     func_table: IndexMap<Func, MessageId>,
     global_constant_table: IndexMap<SmallStr, MessageId>,
     constant_table: IndexMap<VariableKey, MessageId>,
@@ -399,20 +399,41 @@ impl<'a> Converter<'a> {
         Self { unifier, mappings }
     }
 
-    pub fn get_actor(&mut self, agent: &str) -> ConstantId {
+    pub fn get_actor(
+        &mut self,
+        session_id: Option<SessionId>,
+        agent: &protocol::ActorName,
+    ) -> MessageId {
         // TODO: ???
-        let mid = self.register_global_constant(agent);
-        if let Message::Constant(c) = self.unifier.table.probe_value(mid) {
-            c
-        } else {
-            unreachable!()
-        }
+        // let mid = self.register_global_constant(agent);
+        // if let Message::Constant(c) = self.unifier.table.probe_value(mid) {
+        //     c
+        // } else {
+        //     unreachable!()
+        // }
         // TODO: ???
-        // *self.actor_table.entry(agent.into()).or_insert_with(|| {
-        //     let cid = ConstantId(self.mapper.next_constant, Some(leak_str(agent)));
-        //     self.mapper.next_constant += 1;
-        //     cid
-        // })
+        *self
+            .mappings
+            .actor_table
+            .entry((session_id, agent.0.clone().into()))
+            .or_insert_with(|| match session_id {
+                _ if agent.0.is_constant() => {
+                    let cid = ConstantId(
+                        self.mappings.next_constant,
+                        Some(leak_str(agent.0.as_str())),
+                    );
+                    self.mappings.next_constant += 1;
+                    self.unifier.table.new_key(Message::Constant(cid))
+                }
+                Some(session_id) => self.unifier.table.new_key(Message::Agent(Some(format!(
+                    "{}_{}",
+                    agent.0, session_id.0
+                )))),
+                _ => self
+                    .unifier
+                    .table
+                    .new_key(Message::Agent(Some(format!("{}", agent.0)))),
+            })
     }
     pub fn get_function_constant(&mut self, func: Func) -> MessageId {
         *self
@@ -490,9 +511,9 @@ impl<'a> Converter<'a> {
 
     fn initiate_typed_variable(
         &mut self,
-        agent: &Ident<SmallStr>,
+        agent: Option<&Ident<SmallStr>>,
         session_id: SessionId,
-        initiate: &IndexSet<protocol::Variable>,
+        initators: &IndexMap<protocol::Variable, protocol::ActorName>,
         var: &protocol::Variable,
     ) -> MessageId {
         match var {
@@ -500,30 +521,38 @@ impl<'a> Converter<'a> {
                 // TODO: Is it fine to register agents like this??
                 // self.register_variable(agent, session_id, a.0.as_str())
                 // TODO: For now, just fix them so that A will always be A, and B always B
-                self.register_global_constant(a.0.as_str())
+                self.get_actor(Some(session_id), a)
             }
             protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
-                if initiate.contains(var) {
-                    self.register_constant(agent, session_id, &n.convert())
-                } else {
-                    self.register_variable(agent, session_id, &n.convert())
+                match (initators.get(var), agent) {
+                    (Some(initator), Some(agent)) if &initator.0 == agent => {
+                        self.register_constant(agent, session_id, &n.convert())
+                    }
+                    (Some(_), Some(agent)) => {
+                        self.register_variable(agent, session_id, &n.convert())
+                    }
+                    (Some(initator), None) => {
+                        self.register_constant(&initator.0, session_id, &n.convert())
+                    }
+                    _ => todo!("Variable {:?} ({:?})", var, initators),
+                    // _ => self.register_variable(agent, session_id, &n.convert()),
                 }
             }
         }
     }
     fn register_typed_message(
         &mut self,
-        agent: &Ident<SmallStr>,
+        agent: Option<&Ident<SmallStr>>,
         session_id: SessionId,
-        initiate: &IndexSet<protocol::Variable>,
+        initiations: &IndexMap<protocol::Variable, protocol::ActorName>,
         msg: protocol::Message,
     ) -> MessageId {
         match msg {
             protocol::Message::Variable(var) => {
-                self.initiate_typed_variable(agent, session_id, initiate, &var)
+                self.initiate_typed_variable(agent, session_id, initiations, &var)
             }
             protocol::Message::Constant(c) => match c {
-                protocol::Constant::Actor(a) => self.register_global_constant(a.0.as_str()),
+                protocol::Constant::Actor(a) => self.get_actor(Some(session_id), &a),
                 protocol::Constant::Function(f) => self.get_function_constant(f),
                 protocol::Constant::Nonce(_) => todo!(),
             },
@@ -531,7 +560,7 @@ impl<'a> Converter<'a> {
                 let msg = Message::Composition(
                     func,
                     args.into_iter()
-                        .map(|arg| self.register_typed_message(agent, session_id, initiate, arg))
+                        .map(|arg| self.register_typed_message(agent, session_id, initiations, arg))
                         .collect(),
                 );
                 self.unifier.table.new_key(msg)
@@ -539,7 +568,7 @@ impl<'a> Converter<'a> {
             protocol::Message::Tuple(ts) => {
                 let msg = Message::Tuple(
                     ts.into_iter()
-                        .map(|t| self.register_typed_message(agent, session_id, initiate, t))
+                        .map(|t| self.register_typed_message(agent, session_id, initiations, t))
                         .collect(),
                 );
                 self.unifier.table.new_key(msg)
@@ -559,8 +588,8 @@ type SmallStr = SmolStr;
 
 #[derive(Debug, Clone)]
 struct Transaction {
-    sender: ConstantId,
-    receiver: ConstantId,
+    sender: MessageId,
+    receiver: MessageId,
     direction: Direction,
     messages: Vec<MessageId>,
 }
@@ -568,7 +597,7 @@ struct Transaction {
 #[derive(Debug, Clone)]
 struct SessionActor {
     name: Ident<SmallStr>,
-    constant: ConstantId,
+    actor_id: MessageId,
     initial_knowledge: Knowledge,
     strand: Vec<Transaction>,
 }
@@ -586,33 +615,34 @@ impl Session {
             .actors
             .iter()
             .map(|actor| {
-                let initiates = actor
-                    .messages
-                    .iter()
-                    .flat_map(|pattern| {
-                        if pattern.direction == Direction::Outgoing {
-                            pattern.initiates.clone()
-                        } else {
-                            Default::default()
-                        }
-                    })
-                    .collect();
-
                 let mut initial_knowledge: Vec<_> = actor
                     .initial_knowledge
                     .iter()
                     .map(|msg| {
                         converter.register_typed_message(
-                            &actor.name.0,
+                            Some(&actor.name.0),
                             session_id,
-                            &initiates,
+                            &protocol.initiations,
                             msg.clone(),
                         )
                     })
                     .collect();
 
-                initial_knowledge.extend(initiates.iter().map(|var| {
-                    converter.initiate_typed_variable(&actor.name.0, session_id, &initiates, var)
+                let initiates = actor.messages.iter().flat_map(|pattern| {
+                    if pattern.direction == Direction::Outgoing {
+                        pattern.initiates.clone()
+                    } else {
+                        Default::default()
+                    }
+                });
+
+                initial_knowledge.extend(initiates.map(|var| {
+                    converter.initiate_typed_variable(
+                        Some(&actor.name.0),
+                        session_id,
+                        &protocol.initiations,
+                        &var,
+                    )
                 }));
 
                 initial_knowledge.sort_unstable_by_key(|msg| converter.unifier.resolve_full(*msg));
@@ -620,23 +650,23 @@ impl Session {
 
                 SessionActor {
                     name: actor.name.0.clone(),
-                    constant: converter.get_actor(actor.name.0.as_str()),
+                    actor_id: converter.get_actor(Some(session_id), &actor.name),
                     initial_knowledge: Knowledge(initial_knowledge),
                     strand: actor
                         .messages
                         .iter()
                         .map(|pattern| Transaction {
-                            sender: converter.get_actor(pattern.from.0.as_str()),
-                            receiver: converter.get_actor(pattern.to.0.as_str()),
+                            sender: converter.get_actor(Some(session_id), &pattern.from),
+                            receiver: converter.get_actor(Some(session_id), &pattern.to),
                             direction: pattern.direction,
                             messages: pattern
                                 .packet
                                 .iter()
                                 .map(|msg| {
                                     converter.register_typed_message(
-                                        &actor.name.0,
+                                        Some(&actor.name.0),
                                         session_id,
-                                        &initiates,
+                                        &protocol.initiations,
                                         msg.clone(),
                                     )
                                 })
@@ -650,16 +680,21 @@ impl Session {
         let secrets = protocol
             .goals
             .iter()
-            .filter_map(|goal| match goal {
-                protocol::Goal::SecretBetween(_, msg) => Some(converter.register_typed_message(
-                    &"Mr. Global🧐".into(),
-                    session_id,
-                    &Default::default(),
-                    msg.clone(),
-                )),
+            .flat_map(|goal| match goal {
+                protocol::Goal::SecretBetween(_, msgs) => msgs
+                    .iter()
+                    .map(|msg| {
+                        converter.register_typed_message(
+                            None,
+                            session_id,
+                            &protocol.initiations,
+                            msg.clone(),
+                        )
+                    })
+                    .collect_vec(),
                 protocol::Goal::Authenticates(_, _, _) => {
                     eprintln!("⚠️ no authentication goals");
-                    None
+                    vec![]
                 }
             })
             .collect();
@@ -677,7 +712,7 @@ impl Session {
         println!("#############");
         for actor in &self.actors {
             println!();
-            println!("> {} ({:?})", actor.name, actor.constant);
+            println!("> {} ({:?})", actor.name, actor.actor_id);
             println!(
                 "> IK: {:?}",
                 actor
@@ -690,8 +725,8 @@ impl Session {
             for t in &actor.strand {
                 println!(
                     ">> {:?}->{:?}: {:?}",
-                    t.sender,
-                    t.receiver,
+                    unifier.resolve_full(t.sender),
+                    unifier.resolve_full(t.receiver),
                     t.messages
                         .iter()
                         .map(|&msg| unifier.resolve_full(msg))
@@ -699,19 +734,35 @@ impl Session {
                 );
             }
         }
+        println!();
+        println!("=== SECRETS ===");
+        for secret in &self.secrets {
+            println!("{:?}", unifier.resolve_full(*secret));
+        }
     }
 }
 
 impl Knowledge {
     fn can_construct(&self, unifier: &mut Unifier, msg: MessageId) -> bool {
-        // todo!()
-        true
+        // eprintln!(
+        //     "Can construct {:?} with knowledge {:?}",
+        //     unifier.resolve_full(msg),
+        //     self.0
+        //         .iter()
+        //         .map(|&msg| unifier.resolve_full(msg))
+        //         .format(", ")
+        // );
+        if self.0.iter().any(|&k| unifier.table.unioned(k, msg)) {
+            return true;
+        }
+
+        false
     }
 }
 
 #[derive(Debug, Clone)]
 struct ExecutionActorState {
-    id: ConstantId,
+    actor_id: MessageId,
     current_execution: usize,
     inbox: VecDeque<Vec<MessageId>>,
 }
@@ -724,8 +775,8 @@ struct ExecutionSessionState {
 #[derive(Debug, Clone)]
 struct TraceEntry {
     session: SessionId,
-    sender: SmolStr,
-    receiver: Option<SmolStr>,
+    sender: Option<(SmolStr, MessageId)>,
+    receiver: Option<(SmolStr, MessageId)>,
     messages: Vec<MessageId>,
 }
 
@@ -739,11 +790,17 @@ impl Intruder {
     fn has_achieved_goal(&self, sessions: &[Session], unifier: &mut Unifier) -> bool {
         sessions.iter().any(|sess| {
             sess.secrets.iter().any(|&secret| {
-                let s = unifier.resolve_full(secret);
                 for &k in &self.knowledge {
-                    let k = unifier.resolve_full(k);
-                    if s == k {
-                        todo!("LEAKED {:?} ({:?})", s, k);
+                    let mut new = unifier.clone();
+
+                    if new.unify(secret, k).is_ok() && self.conforms_to_constraints(&mut new) {
+                        eprintln!(
+                            "LEAKED {:?} ({:?})",
+                            new.resolve_full(secret),
+                            unifier.resolve_full(k)
+                        );
+                        *unifier = new;
+                        return true;
                     }
                 }
 
@@ -780,7 +837,7 @@ impl Execution {
                     .actors
                     .iter()
                     .map(|actor| ExecutionActorState {
-                        id: actor.constant,
+                        actor_id: actor.actor_id,
                         current_execution: 0,
                         inbox: Default::default(),
                     })
@@ -796,6 +853,7 @@ impl Execution {
             trace: vec![],
         }
     }
+
     pub fn possible_next(&self) -> impl Iterator<Item = Execution> + '_ {
         // NOTE: Under the assumption that all sessions are initially
         // equivalent, never progress sessions which come after sessions which
@@ -828,7 +886,7 @@ impl Execution {
                                     if let Some(receiver_i) = new.states[session_i]
                                         .actors
                                         .iter_mut()
-                                        .position(|a| a.id == transaction.receiver)
+                                        .position(|a| a.actor_id == transaction.receiver)
                                     {
                                         // shouldn't, we also have an execution where receiver doesn't get the message in their inbox?
                                         let mut next_executions = Vec::new();
@@ -845,13 +903,22 @@ impl Execution {
                                         new.trace.push(
                                             TraceEntry {
                                                 session: session.session_id,
-                                                sender: actor.name.as_str().into(),
+                                                sender: Some((
+                                                    actor.name.as_str().into(),
+                                                    actor.actor_id,
+                                                )),
                                                 receiver:
                                                     Some(
-                                                        self.sessions[session_i].actors[receiver_i]
-                                                            .name
-                                                            .as_str()
-                                                            .into(),
+                                                        (
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .name
+                                                                .as_str()
+                                                                .into(),
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .actor_id,
+                                                        ),
                                                     ),
                                                 messages: transaction.messages.clone(),
                                             }
@@ -867,7 +934,10 @@ impl Execution {
                                             intruder_intercept.trace.push(
                                                 TraceEntry {
                                                     session: session.session_id,
-                                                    sender: actor.name.as_str().into(),
+                                                    sender: Some((
+                                                        actor.name.as_str().into(),
+                                                        actor.actor_id,
+                                                    )),
                                                     receiver: None,
                                                     messages: transaction.messages.clone(),
                                                 }
@@ -924,8 +994,32 @@ impl Execution {
                                                 transaction.messages.clone(),
                                             )));
 
+                                            intruder.knowledge.extend(transaction.messages.clone());
+
                                             new.states[session_i].actors[actor_i]
                                                 .current_execution += 1;
+
+                                            new.trace.push(
+                                                TraceEntry {
+                                                    session: SessionId(session_i as _),
+                                                    sender: None,
+                                                    receiver:
+                                                        Some(
+                                                            (
+                                                                new.sessions[session_i].actors
+                                                                    [actor_i]
+                                                                    .name
+                                                                    .clone()
+                                                                    .into(),
+                                                                new.states[session_i].actors
+                                                                    [actor_i]
+                                                                    .actor_id,
+                                                            ),
+                                                        ),
+                                                    messages: transaction.messages.clone(),
+                                                }
+                                                .into(),
+                                            );
 
                                             // TODO: add trace
 
@@ -965,8 +1059,14 @@ impl Execution {
             println!(
                 "[{}] {}->{}: {:?}",
                 t.session.0,
-                t.sender,
-                t.receiver.as_ref().map(|r| r.as_str()).unwrap_or("?"),
+                t.sender
+                    .as_ref()
+                    .map(|s| format!("{:?}", self.unifier.resolve_full(s.1)))
+                    .unwrap_or_else(|| "?".to_string()),
+                t.receiver
+                    .as_ref()
+                    .map(|r| format!("{:?}", self.unifier.resolve_full(r.1)))
+                    .unwrap_or_else(|| "?".to_string()),
                 t.messages
                     .iter()
                     .map(|&msg| self.unifier.resolve_full(msg))

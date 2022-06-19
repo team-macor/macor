@@ -45,7 +45,7 @@ pub enum Goal<S: Deref<Target = str>> {
         weakly: bool,
     },
     SecretBetween {
-        msg: Message<S>,
+        msgs: Vec<Message<S>>,
         agents: Vec<Ident<S>>,
         guessable: bool,
     },
@@ -61,11 +61,11 @@ impl<S: Deref<Target = str>> Goal<S> {
                 weakly,
             },
             Goal::SecretBetween {
-                msg,
+                msgs,
                 agents,
                 guessable,
             } => Goal::SecretBetween {
-                msg: msg.map(f),
+                msgs: msgs.into_iter().map(|msg| msg.map(f)).collect(),
                 agents: agents.into_iter().map(|i| i.map(f)).collect(),
                 guessable,
             },

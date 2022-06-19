@@ -28,10 +28,14 @@ fn main() -> miette::Result<()> {
         let mut unifier = Default::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
-        let sessions: std::sync::Arc<Vec<_>> = (0..1)
+        let sessions: std::sync::Arc<Vec<_>> = (0..2)
             .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();
+
+        Execution::new(unifier.clone(), sessions.clone()).print_sessions();
+
+        panic!();
 
         let start = std::time::Instant::now();
         let mut num_executions = 0;
@@ -77,11 +81,12 @@ fn main() -> miette::Result<()> {
                 worklist.push_back(Execution::new(unifier.clone(), sessions.clone()));
 
                 while let Some(mut execution) = worklist.pop_front() {
+                    // execution.print_trace();
                     num_executions += 1;
                     let mut nexts = execution.possible_next().peekable();
                     if nexts.peek().is_none() {
                         drop(nexts);
-                        execution.print_trace();
+                        // execution.print_trace();
                     } else {
                         for mut next in nexts {
                             if next.has_compromised_secrets() {

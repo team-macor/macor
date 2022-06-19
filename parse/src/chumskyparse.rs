@@ -209,11 +209,12 @@ pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<
         });
 
     let secret_between_goal = message_parser()
+        .separated_by(just(Token::Comma))
         .then(just(Token::Guessable).or_not())
         .then_ignore(just(Token::Secret).then_ignore(just(Token::Between)))
         .then(ident_parser().separated_by(just(Token::Comma)))
-        .map(|((msg, guessable), agents)| Goal::SecretBetween {
-            msg,
+        .map(|((msgs, guessable), agents)| Goal::SecretBetween {
+            msgs,
             agents,
             guessable: guessable.is_some(),
         });

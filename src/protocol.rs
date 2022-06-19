@@ -1,6 +1,6 @@
 use std::hash::Hash;
 
-use indexmap::{indexset, IndexSet};
+use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools;
 use macor_parse::ast::{self, Ident};
 use smol_str::SmolStr;
@@ -179,13 +179,14 @@ pub struct ProtocolActor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Goal<A> {
-    SecretBetween(Vec<A>, Message),
+    SecretBetween(Vec<A>, Vec<Message>),
     Authenticates(A, A, Vec<Message>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Protocol {
     pub actors: Vec<ProtocolActor>,
+    pub initiations: IndexMap<Variable, ActorName>,
     pub goals: Vec<Goal<ActorName>>,
 }
 
@@ -272,6 +273,7 @@ impl Protocol {
             })
             .collect_vec();
 
+        let mut initiations = IndexMap::default();
         let mut seen = IndexSet::<Variable>::default();
 
         for action in &mut actions {
@@ -282,8 +284,13 @@ impl Protocol {
                 .collect();
 
             action.initiates = in_this.difference(&seen).cloned().collect();
+            for var in &action.initiates {
+                initiations.insert(var.clone(), ActorName(action.from.clone()));
+            }
             seen.extend(in_this.into_iter());
         }
+
+        dbg!(&initiations);
 
         let actors = document
             .knowledge
@@ -306,7 +313,7 @@ impl Protocol {
                         .collect(),
                 ),
                 ast::Goal::SecretBetween {
-                    msg,
+                    msgs,
                     agents,
                     guessable,
                 } => Goal::SecretBetween(
@@ -314,13 +321,19 @@ impl Protocol {
                         .iter()
                         .map(|agent| ActorName(agent.convert()))
                         .collect(),
-                    Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx),
+                    msgs.iter()
+                        .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                        .collect(),
                 ),
             })
             .collect();
 
         if ctx.errors.is_empty() {
-            Ok(Protocol { actors, goals })
+            Ok(Protocol {
+                actors,
+                initiations,
+                goals,
+            })
         } else {
             Err(ctx.errors)
         }

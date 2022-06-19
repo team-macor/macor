@@ -85,7 +85,7 @@ Goals: Vec<Goal<&'input str>> = "Goals" ":" <Goal*>;
 pub Goal: Goal<&'input str> = {
     <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <msgs:Sep<",", Message>> =>
         Goal::Authenticates { <> },
-    <msg:Message> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
+    <msgs:Messages> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
         Goal::SecretBetween { <> },
 };
 
