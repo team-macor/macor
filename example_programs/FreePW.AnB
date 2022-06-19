@@ -1,0 +1,14 @@
+Protocol: FreePW
+
+Types: Agent A,s;
+       Function pw
+
+Knowledge:
+  A: A,s,pw(A,s);
+  s: A,s,pw(A,s)
+
+Actions:
+  A->s: pw(A,s)
+
+Goals:
+  pw(A,s) secret between A,s

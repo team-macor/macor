@@ -169,7 +169,12 @@ impl Unifier {
                 }
                 (Composition(l_func, l_args), Composition(r_func, r_args)) => {
                     if l_func != r_func || l_args.len() != r_args.len() {
-                        todo!()
+                        // eprintln!(
+                        //     "Attempted to unify {:?} with {:?}",
+                        //     self.resolve_full(l),
+                        //     self.resolve_full(r)
+                        // );
+                        return Err(());
                     } else {
                         for (l_arg, r_arg) in l_args.into_iter().zip_eq(r_args) {
                             self.unify(l_arg, r_arg)?;
@@ -548,6 +553,7 @@ struct SessionActor {
 pub struct Session {
     session_id: SessionId,
     actors: Vec<SessionActor>,
+    secrets: Vec<MessageId>,
 }
 
 impl Session {
@@ -617,7 +623,28 @@ impl Session {
             })
             .collect_vec();
 
-        Session { session_id, actors }
+        let secrets = protocol
+            .goals
+            .iter()
+            .filter_map(|goal| match goal {
+                protocol::Goal::SecretBetween(_, msg) => Some(unifier.register_typed_message(
+                    &"Mr. Global🧐".into(),
+                    session_id,
+                    &Default::default(),
+                    msg.clone(),
+                )),
+                protocol::Goal::Authenticates(_, _, _) => {
+                    eprintln!("⚠️ no authentication goals");
+                    None
+                }
+            })
+            .collect();
+
+        Session {
+            session_id,
+            actors,
+            secrets,
+        }
     }
     pub fn print(&self, unifier: &mut Unifier) {
         println!();
@@ -667,16 +694,42 @@ struct ExecutionSessionState {
 struct TraceEntry {
     session: SessionId,
     sender: SmolStr,
-    receiver: SmolStr,
+    receiver: Option<SmolStr>,
     messages: Vec<MessageId>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct Intruder {
+    knowledge: Vec<MessageId>,
+    constraints: Vec<Rc<(Knowledge, Vec<MessageId>)>>,
+}
+
+impl Intruder {
+    fn has_achieved_goal(&self, sessions: &[Session], unifier: &mut Unifier) -> bool {
+        sessions.iter().any(|sess| {
+            sess.secrets.iter().any(|&secret| {
+                let s = unifier.resolve_full(secret);
+                for &k in &self.knowledge {
+                    let k = unifier.resolve_full(k);
+                    if s == k {
+                        todo!("LEAKED {:?} ({:?})", s, k);
+                    }
+                }
+
+                // eprintln!("check with dolev-yao if secret is derivable");
+
+                false
+            })
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Execution {
     unifier: Unifier,
-    intruder: Option<Vec<MessageId>>,
-    sessions: Rc<Vec<Session>>,
+    intruder: Option<Intruder>,
     states: Vec<ExecutionSessionState>,
+    sessions: Rc<Vec<Session>>,
     trace: Vec<Rc<TraceEntry>>,
 }
 
@@ -699,7 +752,7 @@ impl Execution {
 
         Execution {
             unifier,
-            intruder: None,
+            intruder: Some(Default::default()),
             sessions,
             states,
             trace: vec![],
@@ -728,87 +781,137 @@ impl Execution {
                     .iter()
                     .zip_eq(session_state.actors.iter())
                     .enumerate()
-                    .filter_map(move |(actor_i, (actor, state))| {
-                        let transaction = actor.strand.get(state.current_execution)?;
-
-                        match transaction.direction {
-                            Direction::Outgoing => {
-                                if transaction.direction == Direction::Ingoing {
-                                    return None;
-                                }
-
-                                let mut new = self.clone();
-
-                                if let Some(receiver_i) = new.states[session_i]
-                                    .actors
-                                    .iter_mut()
-                                    .position(|a| a.id == transaction.receiver)
-                                {
-                                    let r = &mut new.states[session_i].actors[receiver_i];
-                                    r.inbox.push_back(transaction.messages.clone());
-
-                                    new.states[session_i].actors[actor_i].current_execution += 1;
-
-                                    new.trace.push(
-                                        TraceEntry {
-                                            session: session.session_id,
-                                            sender: actor.name.as_str().into(),
-                                            receiver: self.sessions[session_i].actors[receiver_i]
-                                                .name
-                                                .0
-                                                .as_str()
-                                                .into(),
-                                            // messages: transaction
-                                            //     .messages
-                                            //     .iter()
-                                            //     .map(|&msg| new.unifier.resolve_full(msg))
-                                            //     .collect(),
-                                            messages: transaction.messages.clone(),
-                                        }
-                                        .into(),
-                                    );
-
-                                    Some(new)
-                                } else {
-                                    todo!()
-                                }
-                            }
-                            Direction::Ingoing => {
-                                if !state.inbox.is_empty() {
+                    .flat_map(move |(actor_i, (actor, state))| {
+                        if let Some(transaction) = actor.strand.get(state.current_execution) {
+                            match transaction.direction {
+                                Direction::Outgoing => {
                                     let mut new = self.clone();
 
-                                    let incoming = new.states[session_i].actors[actor_i]
-                                        .inbox
-                                        .pop_back()
-                                        .unwrap();
-
-                                    for (&a, &b) in
-                                        transaction.messages.iter().zip_eq(incoming.iter())
+                                    if let Some(receiver_i) = new.states[session_i]
+                                        .actors
+                                        .iter_mut()
+                                        .position(|a| a.id == transaction.receiver)
                                     {
-                                        // if new.unifier.resolve_full(a)
-                                        //     != new.unifier.resolve_full(b)
-                                        // {
-                                        //     println!(
-                                        //         "Time to unify {:?} with {:?}",
-                                        //         new.unifier.resolve_full(a),
-                                        //         new.unifier.resolve_full(b)
-                                        //     );
-                                        // }
-                                        new.unifier.unify(a, b).unwrap();
+                                        // shouldn't, we also have an execution where receiver doesn't get the message in their inbox?
+                                        let mut next_executions = Vec::new();
+                                        if let Some(intruder) = &mut new.intruder {
+                                            intruder.knowledge.extend(transaction.messages.clone());
+                                        }
+
+                                        new.states[session_i].actors[actor_i].current_execution +=
+                                            1;
+
+                                        // TODO: Don't clone if not nessesary
+                                        let mut intruder_intercept = new.clone();
+
+                                        new.trace.push(
+                                            TraceEntry {
+                                                session: session.session_id,
+                                                sender: actor.name.as_str().into(),
+                                                receiver:
+                                                    Some(
+                                                        self.sessions[session_i].actors[receiver_i]
+                                                            .name
+                                                            .as_str()
+                                                            .into(),
+                                                    ),
+                                                messages: transaction.messages.clone(),
+                                            }
+                                            .into(),
+                                        );
+
+                                        let r = &mut new.states[session_i].actors[receiver_i];
+                                        r.inbox.push_back(transaction.messages.clone());
+
+                                        next_executions.push(new);
+
+                                        if self.intruder.is_some() {
+                                            intruder_intercept.trace.push(
+                                                TraceEntry {
+                                                    session: session.session_id,
+                                                    sender: actor.name.as_str().into(),
+                                                    receiver: None,
+                                                    messages: transaction.messages.clone(),
+                                                }
+                                                .into(),
+                                            );
+
+                                            next_executions.push(intruder_intercept);
+                                        }
+
+                                        next_executions
+                                    } else {
+                                        unreachable!("cannot send message to unknown actor")
                                     }
-
-                                    new.states[session_i].actors[actor_i].current_execution += 1;
-
-                                    return Some(new);
                                 }
+                                Direction::Ingoing => {
+                                    if !state.inbox.is_empty() {
+                                        let mut new = self.clone();
 
-                                // TODO: Intruder
-                                None
+                                        let incoming = new.states[session_i].actors[actor_i]
+                                            .inbox
+                                            .pop_back()
+                                            .unwrap();
+
+                                        for (&a, &b) in
+                                            transaction.messages.iter().zip_eq(incoming.iter())
+                                        {
+                                            // if new.unifier.resolve_full(a)
+                                            //     != new.unifier.resolve_full(b)
+                                            // {
+                                            //     println!(
+                                            //         "Time to unify {:?} with {:?}",
+                                            //         new.unifier.resolve_full(a),
+                                            //         new.unifier.resolve_full(b)
+                                            //     );
+                                            // }
+                                            match new.unifier.unify(a, b) {
+                                                Ok(_) => {}
+                                                Err(_) => {
+                                                    return vec![];
+                                                }
+                                            }
+                                        }
+
+                                        new.states[session_i].actors[actor_i].current_execution +=
+                                            1;
+
+                                        vec![new]
+                                    } else {
+                                        let mut new = self.clone();
+
+                                        if let Some(intruder) = &mut new.intruder {
+                                            intruder.constraints.push(Rc::new((
+                                                Knowledge(intruder.knowledge.clone()),
+                                                transaction.messages.clone(),
+                                            )));
+
+                                            new.states[session_i].actors[actor_i]
+                                                .current_execution += 1;
+
+                                            // TODO: add trace
+
+                                            return vec![new];
+                                        }
+
+                                        vec![]
+                                    }
+                                }
                             }
+                        } else {
+                            vec![]
                         }
                     })
             })
     }
+
+    pub fn has_compromised_secrets(&mut self) -> bool {
+        match &self.intruder {
+            Some(intruder) => intruder.has_achieved_goal(&self.sessions, &mut self.unifier),
+            None => false,
+        }
+    }
+
     pub fn print_trace(&mut self) {
         println!("---------------------------");
         for t in &self.trace {
@@ -816,7 +919,7 @@ impl Execution {
                 "[{}] {}->{}: {:?}",
                 t.session.0,
                 t.sender,
-                t.receiver,
+                t.receiver.as_ref().map(|r| r.as_str()).unwrap_or("?"),
                 t.messages
                     .iter()
                     .map(|&msg| self.unifier.resolve_full(msg))

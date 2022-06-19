@@ -26,7 +26,7 @@ fn main() -> miette::Result<()> {
             Protocol::new(src.clone(), parsed).map_err(|x| x.first().cloned().unwrap())?;
 
         let mut unifier = Default::default();
-        let sessions: std::sync::Arc<Vec<_>> = (0..2)
+        let sessions: std::sync::Arc<Vec<_>> = (0..1)
             .map(|i| messages::Session::new(&protocol, SessionId(i), &mut unifier))
             .collect_vec()
             .into();
@@ -41,6 +41,13 @@ fn main() -> miette::Result<()> {
             let mut list_b = vec![];
 
             while !list_a.is_empty() {
+                if let Some(execution) = list_a
+                    .iter_mut()
+                    .find_map(|execution| execution.has_compromised_secrets().then(|| execution))
+                {
+                    execution.print_trace();
+                    todo!("pretty print attack");
+                }
                 list_b.clear();
                 list_b.par_extend(
                     list_a
@@ -60,19 +67,28 @@ fn main() -> miette::Result<()> {
                 std::mem::swap(&mut list_a, &mut list_b);
             }
         } else {
-            let mut worklist = VecDeque::new();
+            let num_samples = 1;
 
-            worklist.push_back(Execution::new(unifier, sessions));
+            for _ in 0..num_samples {
+                let mut worklist = VecDeque::new();
 
-            while let Some(mut execution) = worklist.pop_front() {
-                num_executions += 1;
-                let mut nexts = execution.possible_next().peekable();
-                if nexts.peek().is_none() {
-                    drop(nexts);
-                    execution.print_trace();
-                } else {
-                    for next in nexts {
-                        worklist.push_back(next);
+                worklist.push_back(Execution::new(unifier.clone(), sessions.clone()));
+
+                while let Some(mut execution) = worklist.pop_front() {
+                    num_executions += 1;
+                    let mut nexts = execution.possible_next().peekable();
+                    if nexts.peek().is_none() {
+                        drop(nexts);
+                        execution.print_trace();
+                    } else {
+                        for mut next in nexts {
+                            if next.has_compromised_secrets() {
+                                next.print_trace();
+                                todo!("pretty print attack");
+                            }
+
+                            worklist.push_back(next);
+                        }
                     }
                 }
             }

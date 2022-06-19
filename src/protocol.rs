@@ -179,8 +179,8 @@ pub struct ProtocolActor {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Goal<A> {
-    SecretBetween(A, A, Message),
-    Authenticates(A, A, Message),
+    SecretBetween(Vec<A>, Message),
+    Authenticates(A, A, Vec<Message>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,11 +294,33 @@ impl Protocol {
             })
             .collect();
 
-        if ctx.errors.is_empty() {
-            Ok(Protocol {
-                actors,
-                goals: vec![],
+        let goals = document
+            .goals
+            .iter()
+            .map(|goal| match goal {
+                ast::Goal::Authenticates { a, b, msgs, weakly } => Goal::Authenticates(
+                    ActorName(a.convert()),
+                    ActorName(b.convert()),
+                    msgs.iter()
+                        .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                        .collect(),
+                ),
+                ast::Goal::SecretBetween {
+                    msg,
+                    agents,
+                    guessable,
+                } => Goal::SecretBetween(
+                    agents
+                        .iter()
+                        .map(|agent| ActorName(agent.convert()))
+                        .collect(),
+                    Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx),
+                ),
             })
+            .collect();
+
+        if ctx.errors.is_empty() {
+            Ok(Protocol { actors, goals })
         } else {
             Err(ctx.errors)
         }
