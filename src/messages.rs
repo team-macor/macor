@@ -226,7 +226,7 @@ fn very_basic_unification() -> Result<(), ()> {
 
     assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
     assert_eq!(
-        unifier.table.probe_value(a),
+        unifier.table.probe_value(b),
         Message::Constant(ConstantId(0, None))
     );
 
@@ -907,19 +907,14 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver:
-                                                    Some(
-                                                        (
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .name
-                                                                .as_str()
-                                                                .into(),
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .actor_id,
-                                                        ),
-                                                    ),
+                                                receiver: Some((
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .name
+                                                        .as_str()
+                                                        .into(),
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .actor_id,
+                                                )),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1003,25 +998,18 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver:
-                                                        Some(
-                                                            (
-                                                                new.sessions[session_i].actors
-                                                                    [actor_i]
-                                                                    .name
-                                                                    .clone()
-                                                                    .into(),
-                                                                new.states[session_i].actors
-                                                                    [actor_i]
-                                                                    .actor_id,
-                                                            ),
-                                                        ),
+                                                    receiver: Some((
+                                                        new.sessions[session_i].actors[actor_i]
+                                                            .name
+                                                            .clone()
+                                                            .into(),
+                                                        new.states[session_i].actors[actor_i]
+                                                            .actor_id,
+                                                    )),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),
                                             );
-
-                                            // TODO: add trace
 
                                             return vec![new];
                                         }
