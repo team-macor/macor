@@ -1,0 +1,17 @@
+Protocol: SimpleSym
+
+Types:
+    Agent A,s;
+    Symmetric_key KAB;
+    Function sk
+
+Knowledge:
+    A: A,s,sk(A,s);
+    s: A,s,sk(A,s)
+
+Actions:
+    A->s: A
+    s->A: {| KAB |}sk(A,s)
+
+Goals:
+    KAB secret between s
