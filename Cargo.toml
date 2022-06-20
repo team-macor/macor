@@ -30,3 +30,10 @@ debug = true
 
 [workspace]
 members = ["lsp", "parse", "fmt"]
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "time_benchmark"
+harness = false
