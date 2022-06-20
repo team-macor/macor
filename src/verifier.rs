@@ -185,7 +185,7 @@ impl Verifier {
         let protocol =
             Protocol::new(protocol.to_string(), parsed).map_err(|x| x.first().cloned().unwrap())?;
 
-        let mut unifier = Default::default();
+        let mut unifier = Unifier::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
         let sessions: std::sync::Arc<Vec<_>> = (0..self.num_sessions)
@@ -193,7 +193,7 @@ impl Verifier {
             .collect_vec()
             .into();
 
-        Execution::new(unifier, sessions).print_sessions();
+        Execution::new(&protocol, mapper, unifier, sessions).print_sessions();
 
         Ok(())
     }
@@ -216,7 +216,12 @@ impl Verifier {
         let mut num_executions = 0;
 
         if self.parallel {
-            let mut list_a = vec![Execution::new(unifier.clone(), sessions.clone())];
+            let mut list_a = vec![Execution::new(
+                &protocol,
+                mapper.clone(),
+                unifier.clone(),
+                sessions,
+            )];
             let mut list_b = vec![];
 
             while !list_a.is_empty() {
@@ -258,7 +263,12 @@ impl Verifier {
             for _ in 0..num_samples {
                 let mut worklist = VecDeque::new();
 
-                worklist.push_back(Execution::new(unifier.clone(), sessions.clone()));
+                worklist.push_back(Execution::new(
+                    &protocol,
+                    mapper.clone(),
+                    unifier.clone(),
+                    sessions.clone(),
+                ));
 
                 while let Some(mut execution) = worklist.pop_front() {
                     // execution.print_trace();

@@ -422,7 +422,7 @@ pub struct Converter<'a> {
     mappings: &'a mut Mappings,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Mappings {
     next_constant: u32,
     actor_table: IndexMap<(Option<SessionId>, SmallStr), MessageId>,
@@ -877,7 +877,6 @@ struct Intruder {
 impl Intruder {
     fn has_achieved_goal(&mut self, sessions: &[Session], unifier: &mut Unifier) -> bool {
         augment_knowledge(&mut self.knowledge, unifier);
-
         sessions.iter().any(|sess| {
             sess.secrets.iter().any(|&secret| {
                 for &k in &self.knowledge.0 {
@@ -926,7 +925,12 @@ pub struct Execution {
 }
 
 impl Execution {
-    pub fn new(unifier: Unifier, sessions: Rc<Vec<Session>>) -> Self {
+    pub fn new(
+        protocol: &Protocol,
+        mut mappings: Mappings,
+        mut unifier: Unifier,
+        sessions: Rc<Vec<Session>>,
+    ) -> Self {
         let states = sessions
             .iter()
             .map(|session| ExecutionSessionState {
@@ -942,9 +946,26 @@ impl Execution {
             })
             .collect();
 
+        let mut intruder = Intruder::default();
+        let mut converter = Converter::new(&mut unifier, &mut mappings);
+        for session in sessions.iter() {
+            for actor in &protocol.actors {
+                for msg in &actor.initial_knowledge.0 {
+                    let registered_msg = converter.register_typed_message(
+                        None,
+                        session.session_id,
+                        &protocol.initiations,
+                        msg.clone(),
+                    );
+
+                    intruder.knowledge.0.push(registered_msg);
+                }
+            }
+        }
+
         Execution {
             unifier,
-            intruder: Some(Default::default()),
+            intruder: Some(intruder),
             sessions,
             states,
             trace: vec![],
@@ -1007,14 +1028,19 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver: Some((
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .name
-                                                        .as_str()
-                                                        .into(),
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .actor_id,
-                                                )),
+                                                receiver:
+                                                    Some(
+                                                        (
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .name
+                                                                .as_str()
+                                                                .into(),
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .actor_id,
+                                                        ),
+                                                    ),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1101,14 +1127,19 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver: Some((
-                                                        new.sessions[session_i].actors[actor_i]
-                                                            .name
-                                                            .clone()
-                                                            .into(),
-                                                        new.states[session_i].actors[actor_i]
-                                                            .actor_id,
-                                                    )),
+                                                    receiver:
+                                                        Some(
+                                                            (
+                                                                new.sessions[session_i].actors
+                                                                    [actor_i]
+                                                                    .name
+                                                                    .clone()
+                                                                    .into(),
+                                                                new.states[session_i].actors
+                                                                    [actor_i]
+                                                                    .actor_id,
+                                                            ),
+                                                        ),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),
@@ -1146,6 +1177,19 @@ impl Execution {
 
     pub fn print_sessions(&mut self) {
         println!("---------------------------");
+        if let Some(intruder) = &self.intruder {
+            println!(
+                "Intruder knowledge: {:?}",
+                intruder
+                    .knowledge
+                    .0
+                    .iter()
+                    .map(|msg| self.unifier.resolve_full(*msg))
+                    .format(", ")
+            );
+        }
+
+        println!("Sessions");
         for ses in self.sessions.iter() {
             ses.print(&mut self.unifier);
         }

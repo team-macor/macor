@@ -74,18 +74,17 @@ mod tests {
 
     use crate::messages::{Converter, Knowledge};
 
-    // TODO: Fix parsing of symmetric key. Currently {| ... |} cannot be parsed
-    // as Rust syntax, and is thus not accepted by the macro.
+    // TODO: needs to handle message with commas like {|A, B|} as 1 message (call parser)
     macro_rules! scenario {
-        (knowledge : { $($k:expr),+ } ; goals : $($g:expr),+ ;) => {
-            let knowledge = vec![$(stringify!($k)),+];
+        (knowledge : $k:tt ; goals : $($g:expr),+ ;) => {
+            let knowledge: Vec<_> = $k.split(",").into_iter().map(|s| s.to_string()).collect();
             let goals = vec![$(stringify!($g)),+];
 
             let mut unifier = Default::default();
             let mut mapper = Default::default();
             let mut converter = Converter::new(&mut unifier, &mut mapper);
 
-            let knowledge = Knowledge(
+            let mut knowledge = Knowledge(
                 knowledge
                     .iter()
                     .map(|k| converter.register_ast_message(macor_parse::parse_message(k).unwrap().into()))
@@ -109,6 +108,7 @@ mod tests {
                 })
                 .collect_vec();
 
+            crate::dolev_yao::augment_knowledge(&mut knowledge, &mut unifier);
             for (expected, goal) in goals {
                 assert_eq!(
                     expected,
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn my_test() {
         scenario! {
-            knowledge: {k_1, k_2, f};
+            knowledge: "k_1, k_2, f";
             goals: f(k_1, k_2), !h(k_1, k_2), { k_1 }(f(f(k_1), k_2));
         };
     }
@@ -129,7 +129,15 @@ mod tests {
     #[test]
     fn requires_augment() {
         scenario! {
-            knowledge: { key, { data }(inv(key)) };
+            knowledge: "key, { data }(inv(key))";
+            goals: data;
+        };
+    }
+
+    #[test]
+    fn derive_sym_enc() {
+        scenario! {
+            knowledge: "key, {| data |}(key)";
             goals: data;
         };
     }
