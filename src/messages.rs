@@ -162,12 +162,24 @@ struct VariableKey {
     variable: SmolStr,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Unifier {
+    intruder: MessageId,
     table: InPlaceUnificationTable<MessageId>,
 }
 
+impl Default for Unifier {
+    fn default() -> Self {
+        let mut table = InPlaceUnificationTable::default();
+        let intruder = table.new_key(Message::Constant(ConstantId(0, Some("i"))));
+        Self { intruder, table }
+    }
+}
+
 impl Unifier {
+    pub fn intruder(&self) -> MessageId {
+        self.intruder
+    }
     /// Recursively unifies the two messages and returns either of the passed
     /// messages if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
@@ -227,6 +239,12 @@ impl Unifier {
         if self.table.unioned(a, b) {
             return true;
         }
+
+        // println!(
+        //     "Are unified: {:?} with {:?}",
+        //     self.resolve_full(a),
+        //     self.resolve_full(b)
+        // );
 
         false
     }
@@ -422,7 +440,7 @@ pub struct Converter<'a> {
     mappings: &'a mut Mappings,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Mappings {
     next_constant: u32,
     actor_table: IndexMap<(Option<SessionId>, SmallStr), MessageId>,
@@ -430,6 +448,19 @@ pub struct Mappings {
     global_constant_table: IndexMap<SmallStr, MessageId>,
     constant_table: IndexMap<VariableKey, MessageId>,
     variable_table: IndexMap<VariableKey, MessageId>,
+}
+
+impl Default for Mappings {
+    fn default() -> Self {
+        Self {
+            next_constant: 1,
+            actor_table: Default::default(),
+            func_table: Default::default(),
+            global_constant_table: Default::default(),
+            constant_table: Default::default(),
+            variable_table: Default::default(),
+        }
+    }
 }
 
 impl<'a> Converter<'a> {
@@ -883,6 +914,7 @@ impl Intruder {
                     let mut new = unifier.clone();
 
                     if new.unify(secret, k).is_ok()
+                    // if self.knowledge.can_construct(unifier, secret)
                         && self.conforms_to_constraints_without_augment(unifier)
                     {
                         eprintln!(
@@ -1028,19 +1060,14 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver:
-                                                    Some(
-                                                        (
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .name
-                                                                .as_str()
-                                                                .into(),
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .actor_id,
-                                                        ),
-                                                    ),
+                                                receiver: Some((
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .name
+                                                        .as_str()
+                                                        .into(),
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .actor_id,
+                                                )),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1127,19 +1154,14 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver:
-                                                        Some(
-                                                            (
-                                                                new.sessions[session_i].actors
-                                                                    [actor_i]
-                                                                    .name
-                                                                    .clone()
-                                                                    .into(),
-                                                                new.states[session_i].actors
-                                                                    [actor_i]
-                                                                    .actor_id,
-                                                            ),
-                                                        ),
+                                                    receiver: Some((
+                                                        new.sessions[session_i].actors[actor_i]
+                                                            .name
+                                                            .clone()
+                                                            .into(),
+                                                        new.states[session_i].actors[actor_i]
+                                                            .actor_id,
+                                                    )),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),

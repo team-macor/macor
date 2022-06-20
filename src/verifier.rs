@@ -68,7 +68,8 @@ impl Message {
                         .collect(),
                 )
             }
-            messages::Message::Tuple(_) => todo!("can we have tuples at this stage?"),
+            messages::Message::Tuple(_) => Message::Variable(String::new()),
+            // messages::Message::Tuple(_) => todo!("can we have tuples at this stage?"),
         }
     }
 }

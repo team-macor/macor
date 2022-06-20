@@ -1,3 +1,5 @@
+use itertools::Itertools;
+
 use crate::messages::{Knowledge, Message, MessageId, Unifier};
 use crate::protocol::Func;
 
@@ -39,7 +41,17 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                     stack.push(a);
                 }
             }
-
+            Message::Agent(_) => {
+                println!(
+                    "I accept {:?}, but who to unify with {:?} 🤔",
+                    unifier.resolve_full(message),
+                    knowledge
+                        .0
+                        .iter()
+                        .map(|&k| unifier.resolve_full(k))
+                        .collect_vec(),
+                )
+            }
             _ => return false,
         }
     }
@@ -83,7 +95,6 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
                         new_messages.push(m);
                     }
                 }
-
                 _ => {}
             }
         }
