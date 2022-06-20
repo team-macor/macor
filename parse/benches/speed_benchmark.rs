@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 pub fn bench_parsers(c: &mut Criterion) {
     let mut group = c.benchmark_group("Parsers");

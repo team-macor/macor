@@ -53,6 +53,13 @@ impl LanguageServer for Backend {
         .await
     }
 
+    // async fn formatting(
+    //     &self,
+    //     params: DocumentFormattingParams,
+    // ) {
+    //     prettify(params.text_document.text)
+    // }
+
     async fn shutdown(&self) -> Result<()> {
         Ok(())
     }

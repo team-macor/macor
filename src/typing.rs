@@ -4,7 +4,7 @@ use macor_parse::ast::Ident;
 use miette::SourceSpan;
 
 use crate::{
-    dolev_yao::Knowledge,
+    dolev_yao_old::Knowledge,
     protocol::{ActorName, Constant, Func, Message, Variable},
 };
 

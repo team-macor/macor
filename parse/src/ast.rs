@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use itertools::Itertools;
 use smol_str::SmolStr;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -34,6 +35,18 @@ pub enum TypesKey {
     SymmetricKey,
     PublicKey,
     Function,
+}
+
+impl std::fmt::Display for TypesKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TypesKey::Agent => write!(f, "Agent"),
+            TypesKey::Number => write!(f, "Number"),
+            TypesKey::SymmetricKey => write!(f, "Symmetric_key"),
+            TypesKey::PublicKey => write!(f, "Public_key"),
+            TypesKey::Function => write!(f, "Function"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +94,17 @@ pub enum Message<S: Deref<Target = str>> {
     AsymEnc(Vec<Message<S>>, Box<Message<S>>),
 }
 
+impl<S: Deref<Target = str>> std::fmt::Display for Message<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Message::Var(i) => write!(f, "{}", i),
+            Message::Fun(i, msgs) => write!(f, "{}({})", i, msgs.iter().format(",")),
+            Message::SymEnc(msg, key) => write!(f, "{{| {} |}}{}", msg.iter().format(","), key),
+            Message::AsymEnc(msg, key) => write!(f, "{{ {} }}{}", msg.iter().format(","), key),
+        }
+    }
+}
+
 impl<S: Deref<Target = str>> Message<S> {
     pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Message<T> {
         match self {
@@ -117,7 +141,6 @@ impl<S: Deref<Target = str>> Action<S> {
         }
     }
 }
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Knowledge<S: Deref<Target = str>> {
     pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,

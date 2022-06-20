@@ -118,13 +118,31 @@ fn message_parser() -> impl Parser<Token, Message<String>, Error = Simple<Token>
             .then_ignore(just(Token::RSym))
             .then(msg.clone())
             .map(|((_, msgs), key)| Message::SymEnc(msgs, Box::new(key)));
+        let sym_par = just(Token::LSym)
+            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then_ignore(just(Token::RSym))
+            .then_ignore(just(Token::LParen))
+            .then(msg.clone())
+            .then_ignore(just(Token::RParen))
+            .map(|((_, msgs), key)| Message::SymEnc(msgs, Box::new(key)));
         let asym = just(Token::LCurly)
             .then(msg.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RCurly))
-            .then(msg)
+            .then(msg.clone())
             .map(|((_, msgs), key)| Message::AsymEnc(msgs, Box::new(key)));
-
-        fun.or(sym).or(asym).or(var)
+        let asym_par = just(Token::LCurly)
+            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then_ignore(just(Token::RCurly))
+            .then_ignore(just(Token::LParen))
+            .then(msg.clone())
+            .then_ignore(just(Token::RParen))
+            .map(|((_, msgs), key)| Message::AsymEnc(msgs, Box::new(key)));
+        fun.or(sym)
+            .or(sym_par)
+            .or(asym)
+            .or(asym_par)
+            .or(var)
+            .or(msg.delimited_by(just(Token::LParen), just(Token::RParen)))
     })
 }
 

@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use crate::dolev_yao::{augment_knowledge, can_derive};
 use crate::protocol::{self, Direction, Func, Protocol, SessionId};
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
@@ -10,8 +11,32 @@ use smol_str::SmolStr;
 
 type Rc<T> = std::sync::Arc<T>;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ConstantId(u32, Option<&'static str>);
+#[derive(Clone, Copy, Eq)]
+pub struct ConstantId(u32, pub Option<&'static str>);
+
+impl std::hash::Hash for ConstantId {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
+
+impl PartialOrd for ConstantId {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl Ord for ConstantId {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl PartialEq for ConstantId {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 
 impl std::fmt::Debug for ConstantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -22,7 +47,7 @@ impl std::fmt::Debug for ConstantId {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct MessageId(u32);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -30,7 +55,7 @@ pub enum Message<M> {
     Variable(Option<String>),
     Agent(Option<String>),
     Constant(ConstantId),
-    Composition(Func, Vec<M>),
+    Composition(Func<ConstantId>, Vec<M>),
     Tuple(Vec<M>),
 }
 
@@ -65,7 +90,7 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct FullMessage(Message<FullMessage>);
+pub struct FullMessage(Message<FullMessage>);
 
 impl std::fmt::Debug for FullMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -146,7 +171,7 @@ impl Unifier {
     /// Recursively unifies the two messages and returns either of the passed
     /// messages if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
-    fn unify(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
+    pub fn unify(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
         use self::Message::*;
 
         Ok(
@@ -197,7 +222,20 @@ impl Unifier {
             },
         )
     }
-    fn resolve_full(&mut self, id: MessageId) -> FullMessage {
+    pub fn are_unified(&mut self, a: MessageId, b: MessageId) -> bool {
+        // TODO: Should this be recursive?
+        if self.table.unioned(a, b) {
+            return true;
+        }
+
+        false
+    }
+
+    pub fn probe_value(&mut self, id: MessageId) -> Message<MessageId> {
+        self.table.probe_value(id)
+    }
+
+    pub fn resolve_full(&mut self, id: MessageId) -> FullMessage {
         match self.table.probe_value(id) {
             Message::Variable(v) => FullMessage(Message::Variable(v)),
             Message::Agent(v) => FullMessage(Message::Agent(v)),
@@ -450,7 +488,14 @@ impl<'a> Converter<'a> {
             })
     }
 
-    pub fn register_global_constant(&mut self, constant_name: &str) -> MessageId {
+    pub fn register_global_constant(&mut self, constant_name: &str) -> ConstantId {
+        let msg = self.register_global_constant_msg(constant_name);
+        match self.unifier.table.probe_value(msg) {
+            Message::Constant(c) => c,
+            _ => unreachable!(),
+        }
+    }
+    pub fn register_global_constant_msg(&mut self, constant_name: &str) -> MessageId {
         *self
             .mappings
             .global_constant_table
@@ -558,7 +603,13 @@ impl<'a> Converter<'a> {
             },
             protocol::Message::Composition { func, args } => {
                 let msg = Message::Composition(
-                    func,
+                    match func {
+                        Func::SymEnc => Func::SymEnc,
+                        Func::AsymEnc => Func::AsymEnc,
+                        Func::Exp => Func::Exp,
+                        Func::Inv => Func::Inv,
+                        Func::User(u) => Func::User(self.register_global_constant(u.as_str())),
+                    },
                     args.into_iter()
                         .map(|arg| self.register_typed_message(agent, session_id, initiations, arg))
                         .collect(),
@@ -575,14 +626,47 @@ impl<'a> Converter<'a> {
             }
         }
     }
+    pub fn register_ast_message(
+        &mut self,
+        msg: protocol::Message<crate::typing::UntypedStage>,
+    ) -> MessageId {
+        match msg {
+            protocol::Message::Variable(v) => self.register_global_constant_msg(v.as_str()),
+            protocol::Message::Constant(_) => unreachable!(),
+            protocol::Message::Composition { func, args } => {
+                let msg = Message::Composition(
+                    match func {
+                        Func::SymEnc => Func::SymEnc,
+                        Func::AsymEnc => Func::AsymEnc,
+                        Func::Exp => Func::Exp,
+                        Func::Inv => Func::Inv,
+                        Func::User(u) => Func::User(self.register_global_constant(u.as_str())),
+                    },
+                    args.into_iter()
+                        .map(|t| self.register_ast_message(t))
+                        .collect(),
+                );
+
+                self.unifier.table.new_key(msg)
+            }
+            protocol::Message::Tuple(ts) => {
+                let msg = Message::Tuple(
+                    ts.into_iter()
+                        .map(|t| self.register_ast_message(t))
+                        .collect(),
+                );
+                self.unifier.table.new_key(msg)
+            }
+        }
+    }
 }
 
 fn leak_str(s: &str) -> &'static str {
     Box::leak(s.to_string().into_boxed_str())
 }
 
-#[derive(Debug, Clone)]
-struct Knowledge(Vec<MessageId>);
+#[derive(Debug, Clone, Default)]
+pub struct Knowledge(pub Vec<MessageId>);
 
 type SmallStr = SmolStr;
 
@@ -756,6 +840,10 @@ impl Knowledge {
             return true;
         }
 
+        if can_derive(self, msg, unifier) {
+            return true;
+        }
+
         false
     }
 }
@@ -773,27 +861,31 @@ struct ExecutionSessionState {
 }
 
 #[derive(Debug, Clone)]
-struct TraceEntry {
+pub struct TraceEntry {
     session: SessionId,
-    sender: Option<(SmolStr, MessageId)>,
-    receiver: Option<(SmolStr, MessageId)>,
-    messages: Vec<MessageId>,
+    pub sender: Option<(SmolStr, MessageId)>,
+    pub receiver: Option<(SmolStr, MessageId)>,
+    pub messages: Vec<MessageId>,
 }
 
 #[derive(Debug, Clone, Default)]
 struct Intruder {
-    knowledge: Vec<MessageId>,
+    knowledge: Knowledge,
     constraints: Vec<Rc<(Knowledge, Vec<MessageId>)>>,
 }
 
 impl Intruder {
-    fn has_achieved_goal(&self, sessions: &[Session], unifier: &mut Unifier) -> bool {
+    fn has_achieved_goal(&mut self, sessions: &[Session], unifier: &mut Unifier) -> bool {
+        augment_knowledge(&mut self.knowledge, unifier);
+
         sessions.iter().any(|sess| {
             sess.secrets.iter().any(|&secret| {
-                for &k in &self.knowledge {
+                for &k in &self.knowledge.0 {
                     let mut new = unifier.clone();
 
-                    if new.unify(secret, k).is_ok() && self.conforms_to_constraints(&mut new) {
+                    if new.unify(secret, k).is_ok()
+                        && self.conforms_to_constraints_without_augment(unifier)
+                    {
                         eprintln!(
                             "LEAKED {:?} ({:?})",
                             new.resolve_full(secret),
@@ -811,21 +903,26 @@ impl Intruder {
         })
     }
 
-    fn conforms_to_constraints(&self, unifier: &mut Unifier) -> bool {
+    fn conforms_to_constraints_without_augment(&self, unifier: &mut Unifier) -> bool {
         self.constraints
             .iter()
             .map(|r| r.as_ref())
             .all(|(k, msgs)| msgs.iter().all(|&msg| k.can_construct(unifier, msg)))
     }
+
+    fn conforms_to_constraints(&mut self, unifier: &mut Unifier) -> bool {
+        augment_knowledge(&mut self.knowledge, unifier);
+        self.conforms_to_constraints_without_augment(unifier)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Execution {
-    unifier: Unifier,
+    pub unifier: Unifier,
     intruder: Option<Intruder>,
     states: Vec<ExecutionSessionState>,
     sessions: Rc<Vec<Session>>,
-    trace: Vec<Rc<TraceEntry>>,
+    pub trace: Vec<Rc<TraceEntry>>,
 }
 
 impl Execution {
@@ -891,7 +988,10 @@ impl Execution {
                                         // shouldn't, we also have an execution where receiver doesn't get the message in their inbox?
                                         let mut next_executions = Vec::new();
                                         if let Some(intruder) = &mut new.intruder {
-                                            intruder.knowledge.extend(transaction.messages.clone());
+                                            intruder
+                                                .knowledge
+                                                .0
+                                                .extend(transaction.messages.clone());
                                         }
 
                                         new.states[session_i].actors[actor_i].current_execution +=
@@ -985,11 +1085,14 @@ impl Execution {
 
                                         if let Some(intruder) = &mut new.intruder {
                                             intruder.constraints.push(Rc::new((
-                                                Knowledge(intruder.knowledge.clone()),
+                                                intruder.knowledge.clone(),
                                                 transaction.messages.clone(),
                                             )));
 
-                                            intruder.knowledge.extend(transaction.messages.clone());
+                                            intruder
+                                                .knowledge
+                                                .0
+                                                .extend(transaction.messages.clone());
 
                                             new.states[session_i].actors[actor_i]
                                                 .current_execution += 1;
@@ -1024,7 +1127,7 @@ impl Execution {
                     })
             })
             .filter_map(|mut exe| {
-                if let Some(intruder) = &exe.intruder {
+                if let Some(intruder) = &mut exe.intruder {
                     intruder
                         .conforms_to_constraints(&mut exe.unifier)
                         .then(|| exe)
@@ -1035,33 +1138,12 @@ impl Execution {
     }
 
     pub fn has_compromised_secrets(&mut self) -> bool {
-        match &self.intruder {
+        match &mut self.intruder {
             Some(intruder) => intruder.has_achieved_goal(&self.sessions, &mut self.unifier),
             None => false,
         }
     }
 
-    pub fn print_trace(&mut self) {
-        println!("---------------------------");
-        for t in &self.trace {
-            println!(
-                "[{}] {}->{}: {:?}",
-                t.session.0,
-                t.sender
-                    .as_ref()
-                    .map(|s| format!("{:?}", self.unifier.resolve_full(s.1)))
-                    .unwrap_or_else(|| "?".to_string()),
-                t.receiver
-                    .as_ref()
-                    .map(|r| format!("{:?}", self.unifier.resolve_full(r.1)))
-                    .unwrap_or_else(|| "?".to_string()),
-                t.messages
-                    .iter()
-                    .map(|&msg| self.unifier.resolve_full(msg))
-                    .format(", ")
-            );
-        }
-    }
     pub fn print_sessions(&mut self) {
         println!("---------------------------");
         for ses in self.sessions.iter() {

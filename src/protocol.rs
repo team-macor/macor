@@ -6,7 +6,7 @@ use macor_parse::ast::{self, Ident};
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::Knowledge,
+    dolev_yao_old::Knowledge,
     typing::{Stage, Type, TypedStage, TypingContext, TypingError, UntypedStage},
 };
 
@@ -23,12 +23,12 @@ impl std::fmt::Debug for ActorName {
 pub struct SessionId(pub u32);
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
-pub enum Func {
+pub enum Func<U = Ident<SmolStr>> {
     SymEnc,
     AsymEnc,
     Exp,
     Inv,
-    User(Ident<SmolStr>),
+    User(U),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
@@ -290,8 +290,6 @@ impl Protocol {
             seen.extend(in_this.into_iter());
         }
 
-        dbg!(&initiations);
-
         let actors = document
             .knowledge
             .agents
@@ -339,7 +337,7 @@ impl Protocol {
         }
     }
 }
-impl Func {
+impl<T> Func<T> {
     pub(crate) fn is_public(&self) -> bool {
         match self {
             Func::SymEnc | Func::AsymEnc | Func::Exp => true,
