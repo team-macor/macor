@@ -11,8 +11,9 @@ Knowledge:
     s: A,s,sk(A,s)
 
 Actions:
-    A->s: A, NA
-    s->A: {| KAB, NA |}sk(A,s)
+    A->s: A
+    s->A: {| KAB |}sk(A,s)
+    A->s: sk(A,s)
 
 Goals:
     KAB secret between s,A
