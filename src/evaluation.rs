@@ -85,58 +85,6 @@ impl Evaluation {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use itertools::Itertools;
-
-    use crate::messages::{Converter, Knowledge};
-
-    // TODO: needs to handle message with commas like {|A, B|} as 1 message (call parser)
-    macro_rules! scenario {
-        (knowledge : $k:tt ; goals : $($g:expr),+ ;) => {
-            let knowledge: Vec<_> = $k.split(",").into_iter().map(|s| s.to_string()).collect();
-            let goals = vec![$(stringify!($g)),+];
-
-            let mut unifier = Default::default();
-            let mut mapper = Default::default();
-            let mut converter = Converter::new(&mut unifier, &mut mapper);
-
-            let mut knowledge = Knowledge(
-                knowledge
-                    .iter()
-                    .map(|k| converter.register_ast_message(macor_parse::parse_message(k).unwrap().into()))
-                    .collect_vec(),
-            );
-
-            let goals = goals
-                .iter()
-                .map(|g| {
-                    if let Some(g) = g.strip_prefix('!') {
-                        (
-                            false,
-                            converter.register_ast_message(macor_parse::parse_message(g).unwrap().into()),
-                        )
-                    } else {
-                        (
-                            true,
-                            converter.register_ast_message(macor_parse::parse_message(g).unwrap().into()),
-                        )
-                    }
-                })
-                .collect_vec();
-
-        let macor_result = String::from_utf8(macor_result.stdout)
-            .unwrap()
-            .contains("No attack found!");
-
-        AttackResult {
-            ofmc_result,
-            macor_result,
-        }
-    }
-}
-
-
 #[test]
 fn compare_result() {
     Evaluation {
