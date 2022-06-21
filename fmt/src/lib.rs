@@ -1,30 +1,52 @@
 use itertools::Itertools;
 use macor_parse::parse_document;
 
-pub fn prettify(src: String) -> Result<String, std::fmt::Error> {
+pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
     use std::fmt::Write;
 
-    let ast = parse_document(&src).unwrap();
+    let ast = if let Ok(ast) = parse_document(src) {
+        ast
+    } else {
+        return Ok(None);
+    };
 
     let mut buf = String::new();
 
     writeln!(buf, "Protocol: {}", ast.name)?;
     writeln!(buf)?;
     writeln!(buf, "Types:")?;
+    let mut first = true;
     for (t, ids) in ast.types {
-        writeln!(buf, "  {}: ", t)?;
-        writeln!(buf, "{};", ids.iter().format(","))?;
+        if first {
+            write!(buf, "  {} ", t)?;
+            write!(buf, "{}", ids.iter().format(","))?;
+        } else {
+            writeln!(buf, ";");
+            write!(buf, "  {} ", t)?;
+            write!(buf, "{}", ids.iter().format(","))?;
+        }
+        first = false;
     }
     writeln!(buf)?;
+    writeln!(buf)?;
     writeln!(buf, "Knowledge:")?;
+    first = true;
     for (agent, msgs) in ast.knowledge.agents.iter() {
-        writeln!(buf, "  {}: ", agent)?;
-        writeln!(buf, "{};", msgs.iter().format(","))?;
+        if first {
+            write!(buf, "  {}: ", agent)?;
+            write!(buf, "{}", msgs.iter().format(","))?;
+        } else {
+            writeln!(buf, ";")?;
+            write!(buf, "  {}: ", agent)?;
+            write!(buf, "{}", msgs.iter().format(","))?;
+        }
+        first = false;
     }
+    writeln!(buf)?;
     writeln!(buf)?;
     writeln!(buf, "Actions:")?;
     for action in ast.actions.iter() {
-        writeln!(buf, "  {}->{}: ", action.from, action.to)?;
+        write!(buf, "  {}->{}: ", action.from, action.to)?;
         writeln!(buf, "{}", action.msgs.iter().format(","))?;
     }
     writeln!(buf)?;
@@ -74,5 +96,5 @@ pub fn prettify(src: String) -> Result<String, std::fmt::Error> {
         }
     }
 
-    Ok(buf)
+    Ok(Some(buf))
 }

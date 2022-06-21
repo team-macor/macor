@@ -1,4 +1,6 @@
+use dashmap::mapref::one::Ref;
 use dashmap::DashMap;
+use macor_fmt::prettify;
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::notification::PublishDiagnostics;
@@ -21,6 +23,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
                 )),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -53,12 +56,18 @@ impl LanguageServer for Backend {
         .await
     }
 
-    // async fn formatting(
-    //     &self,
-    //     params: DocumentFormattingParams,
-    // ) {
-    //     prettify(params.text_document.text)
-    // }
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let src = self.sources.get(&params.text_document.uri).unwrap();
+        let range = Range::new(
+            byte_offset_to_position(&src, 0),
+            byte_offset_to_position(&src, src.len()),
+        );
+
+        match prettify(&src).unwrap() {
+            Some(text) => Ok(Some(vec![TextEdit::new(range, text)])),
+            _ => Ok(None),
+        }
+    }
 
     async fn shutdown(&self) -> Result<()> {
         Ok(())
