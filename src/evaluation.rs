@@ -9,6 +9,10 @@ pub struct TimingResult {
     pub macor_time: Duration,
 }
 
+pub struct AttackResult {
+    pub ofmc_result: bool,
+    pub macor_result: bool,
+}
 pub struct Evaluation {
     pub ofmc_path: PathBuf,
     pub macor_path: PathBuf,
@@ -50,21 +54,29 @@ impl Evaluation {
         }
     }
 
-    fn evaluate_output(&self) {
-        let ofmc = Command::new(&self.ofmc_path)
+    fn evaluate_output(&self) -> AttackResult {
+        let ofmc_result = Command::new(&self.ofmc_path)
             .arg("--numSess")
             .arg(self.num_session.to_string())
             .arg(&self.protocol)
             .output()
             .expect("Could not find path for OFMC");
 
-        let macor = Command::new(&self.macor_path)
+        let ofmc_result = String::from_utf8(ofmc_result.stdout).unwrap().contains("NO_ATTACK_FOUND");
+
+        //("ATTACK_FOUND") 
+
+        let macor_result = Command::new(&self.macor_path)
             .arg("verify")
             .arg("-n")
             .arg(self.num_session.to_string())
             .arg(&self.protocol)
             .output()
             .expect("Could not find path for MACOR");
+        
+        let macor_result = String::from_utf8(macor_result.stdout).unwrap().contains("No attack found!");
+
+        AttackResult{ ofmc_result, macor_result }
     }
 }
 
@@ -141,4 +153,15 @@ mod tests {
             goals: data;
         };
     }
+}
+
+ #[test]
+ fn some_test() {
+    Evaluation {
+        ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
+        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/debug/macor".into(),
+        protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
+        num_session: 1,
+    }.
+   evaluate_output();
 }
