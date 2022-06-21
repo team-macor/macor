@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct ActorName(pub(crate) Ident<SmolStr>);
+pub struct ActorName(pub Ident<SmolStr>);
 
 impl std::fmt::Debug for ActorName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

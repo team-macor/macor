@@ -208,6 +208,10 @@ impl<S> Ident<S> {
     {
         !self.is_constant()
     }
+    pub fn contains(&self, byte_offset: usize) -> bool {
+        let x = self.1;
+        x.offset() <= byte_offset && byte_offset <= x.offset() + x.len()
+    }
 }
 
 impl<S: std::hash::Hash> std::hash::Hash for Ident<S> {

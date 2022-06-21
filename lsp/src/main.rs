@@ -1,6 +1,5 @@
-use dashmap::mapref::one::Ref;
 use dashmap::DashMap;
-use macor_fmt::prettify;
+use macor::protocol;
 use std::sync::Arc;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::notification::PublishDiagnostics;
@@ -11,7 +10,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 struct Backend {
     sources: DashMap<Url, Arc<String>>,
     asts: DashMap<Url, Arc<macor::parse::ast::Document<String>>>,
-    protocols: DashMap<Url, Arc<macor::protocol::Protocol>>,
+    protocols: DashMap<Url, Arc<protocol::Protocol>>,
     client: Client,
 }
 
@@ -37,11 +36,20 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    async fn hover(&self, _: HoverParams) -> Result<Option<Hover>> {
-        Ok(Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String("You're hovering!".to_string())),
-            range: None,
-        }))
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        if let Some(msg) = self.find(
+            params.text_document_position_params.position,
+            &params.text_document_position_params.text_document.uri,
+        ) {
+            Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(
+                    msg, // "You're hovering!".to_string(),
+                )),
+                range: None,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
@@ -64,7 +72,7 @@ impl LanguageServer for Backend {
             byte_offset_to_position(&src, src.len()),
         );
 
-        match prettify(&src).unwrap() {
+        match macor_fmt::prettify(&src).unwrap() {
             Some(text) => Ok(Some(vec![TextEdit::new(range, text)])),
             _ => Ok(None),
         }
@@ -174,7 +182,7 @@ impl Backend {
         self.asts
             .insert(uri.clone(), Arc::new(ast.clone().map(|s| s.into())));
 
-        let protocol = match macor::protocol::Protocol::new(text.to_string(), ast) {
+        let protocol = match protocol::Protocol::new(text.to_string(), ast) {
             Ok(protocol) => protocol,
             Err(errors) => {
                 let diagnostics = errors
@@ -203,6 +211,109 @@ impl Backend {
                 version: None,
             })
             .await;
+    }
+    fn find(&self, pos: Position, uri: &Url) -> Option<String> {
+        let src = self.sources.get(uri)?;
+        let protocol = self.protocols.get(uri)?;
+        let byte_offset = position_to_byte_offset(&src, pos)?;
+
+        self.find_protocol(byte_offset, &protocol)
+    }
+    fn find_protocol(&self, byte_offset: usize, protocol: &protocol::Protocol) -> Option<String> {
+        protocol
+            .actors
+            .iter()
+            .find_map(|actor| {
+                self.find_actor(byte_offset, &actor.name)
+                    .or_else(|| {
+                        actor
+                            .initial_knowledge
+                            .iter()
+                            .find_map(|msg| self.find_msg(byte_offset, msg))
+                    })
+                    .or_else(|| {
+                        actor.messages.iter().find_map(|pat| {
+                            self.find_actor(byte_offset, &pat.from)
+                                .or_else(|| self.find_actor(byte_offset, &pat.to))
+                                .or_else(|| {
+                                    pat.packet
+                                        .iter()
+                                        .find_map(|msg| self.find_msg(byte_offset, msg))
+                                })
+                        })
+                    })
+            })
+            .or_else(|| {
+                protocol.goals.iter().find_map(|goal| match goal {
+                    protocol::Goal::SecretBetween(actors, msgs) => actors
+                        .iter()
+                        .find_map(|a| self.find_actor(byte_offset, a))
+                        .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
+                    protocol::Goal::Authenticates(a, b, msgs) => self
+                        .find_actor(byte_offset, a)
+                        .or_else(|| self.find_actor(byte_offset, b))
+                        .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
+                })
+            })
+    }
+    fn find_actor(&self, byte_offset: usize, name: &protocol::ActorName) -> Option<String> {
+        if name.0.contains(byte_offset) {
+            Some(format!("Actor: `{:?}`", name))
+        } else {
+            None
+        }
+    }
+    fn find_msg(&self, byte_offset: usize, msg: &protocol::Message) -> Option<String> {
+        match msg {
+            protocol::Message::Variable(v) => match v {
+                protocol::Variable::Actor(a) => return self.find_actor(byte_offset, a),
+                protocol::Variable::SymmetricKey(s) => {
+                    if s.contains(byte_offset) {
+                        return Some(format!("Symmetric Key: `{:?}`", s));
+                    }
+                }
+                protocol::Variable::Number(s) => {
+                    if s.contains(byte_offset) {
+                        return Some(format!("Nonce: `{:?}`", s));
+                    }
+                }
+            },
+            protocol::Message::Constant(c) => match c {
+                protocol::Constant::Intruder => {}
+                protocol::Constant::Actor(a) => return self.find_actor(byte_offset, a),
+                protocol::Constant::Function(f) => match f {
+                    protocol::Func::SymEnc
+                    | protocol::Func::AsymEnc
+                    | protocol::Func::Exp
+                    | protocol::Func::Inv => {}
+                    protocol::Func::User(v) => {
+                        if v.contains(byte_offset) {
+                            return Some(format!("Function: `{:?}`", v));
+                        }
+                    }
+                },
+                protocol::Constant::Nonce(_) => {}
+            },
+            protocol::Message::Composition { func, args } => {
+                match func {
+                    protocol::Func::SymEnc
+                    | protocol::Func::AsymEnc
+                    | protocol::Func::Exp
+                    | protocol::Func::Inv => {}
+                    protocol::Func::User(u) => {
+                        if u.contains(byte_offset) {
+                            return Some(format!("Function: `{:?}`", u));
+                        }
+                    }
+                }
+                return args.iter().find_map(|arg| self.find_msg(byte_offset, arg));
+            }
+            protocol::Message::Tuple(ts) => {
+                return ts.iter().find_map(|t| self.find_msg(byte_offset, t))
+            }
+        }
+
+        None
     }
 }
 
