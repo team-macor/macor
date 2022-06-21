@@ -718,10 +718,16 @@ struct SessionActor {
 }
 
 #[derive(Debug, Clone)]
+struct Secret {
+    between_actors: Vec<MessageId>,
+    msg: MessageId,
+}
+
+#[derive(Debug, Clone)]
 pub struct Session {
     session_id: SessionId,
     actors: Vec<SessionActor>,
-    secrets: Vec<MessageId>,
+    secrets: Vec<Secret>,
 }
 
 impl Session {
@@ -796,15 +802,19 @@ impl Session {
             .goals
             .iter()
             .flat_map(|goal| match goal {
-                protocol::Goal::SecretBetween(_, msgs) => msgs
+                protocol::Goal::SecretBetween(agents, msgs) => msgs
                     .iter()
-                    .map(|msg| {
-                        converter.register_typed_message(
+                    .map(|msg| Secret {
+                        between_actors: agents
+                            .iter()
+                            .map(|agent| converter.get_actor(Some(session_id), agent))
+                            .collect(),
+                        msg: converter.register_typed_message(
                             None,
                             session_id,
                             &protocol.initiations,
                             msg.clone(),
-                        )
+                        ),
                     })
                     .collect_vec(),
                 protocol::Goal::Authenticates(_, _, _) => {
@@ -852,7 +862,7 @@ impl Session {
         println!();
         println!("=== SECRETS ===");
         for secret in &self.secrets {
-            println!("{:?}", unifier.resolve_full(*secret));
+            println!("{:?}", unifier.resolve_full(secret.msg));
         }
     }
 }
@@ -906,24 +916,62 @@ struct Intruder {
 }
 
 impl Intruder {
-    fn has_achieved_goal(&mut self, sessions: &[Session], unifier: &mut Unifier) -> bool {
-        augment_knowledge(&mut self.knowledge, unifier);
+    fn has_achieved_goal(
+        &mut self,
+        sessions: &[Session],
+        unifier: &mut Unifier,
+        mappings: &mut Mappings,
+    ) -> bool {
         sessions.iter().any(|sess| {
-            sess.secrets.iter().any(|&secret| {
-                for &k in &self.knowledge.0 {
-                    let mut new = unifier.clone();
+            sess.secrets.iter().any(|secret| {
+                let mut knowledge = self.knowledge.clone();
+                let mut new_unifier = unifier.clone();
+                let mut new_mappings = mappings.clone();
+                let mut converter = Converter::new(&mut new_unifier, &mut new_mappings);
 
-                    if new.unify(secret, k).is_ok()
-                    // if self.knowledge.can_construct(unifier, secret)
-                        && self.conforms_to_constraints_without_augment(unifier)
-                    {
-                        eprintln!(
-                            "LEAKED {:?} ({:?})",
-                            new.resolve_full(secret),
-                            unifier.resolve_full(k)
-                        );
-                        *unifier = new;
-                        return true;
+                let intruder_id = converter
+                    .get_actor(Some(sess.session_id), &protocol::ActorName("I".into()));
+                augment_knowledge(&mut knowledge, &mut new_unifier);
+
+                for actor_id in sess.actors.iter().map(|actor| actor.actor_id).chain(Some(intruder_id)) {
+                    let mut knowledge = self.knowledge.clone();
+                    let mut new_unifier = unifier.clone();
+                    let mut new_mappings = mappings.clone();
+                    let mut converter = Converter::new(&mut new_unifier, &mut new_mappings);
+
+                    let intruder_id = converter
+                        .get_actor(Some(sess.session_id), &protocol::ActorName("I".into()));
+                    if new_unifier.unify(intruder_id, actor_id).is_err() {
+                        continue;
+                    }
+                    augment_knowledge(&mut knowledge, &mut new_unifier);
+
+                    println!(
+                        "Trying to construct {:?} with knowledge [{:?}]\n",
+                        new_unifier.resolve_full(secret.msg),
+                        knowledge
+                            .0
+                            .iter()
+                            .map(|msg| new_unifier.resolve_full(*msg))
+                            .format(", ")
+                    );
+
+                    for &k in &knowledge.0 {
+                        if new_unifier.unify(secret.msg, k).is_ok()
+                        // if self.knowledge.can_construct(unifier, secret)
+                            && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
+                            .between_actors
+                            .iter()
+                            .any(|agent| new_unifier.are_unified(intruder_id, *agent))
+                        {
+                            eprintln!(
+                                "LEAKED {:?} ({:?})",
+                                new_unifier.resolve_full(secret.msg),
+                                unifier.resolve_full(k)
+                            );
+                            *unifier = new_unifier;
+                            return true;
+                        }
                     }
                 }
 
@@ -950,6 +998,7 @@ impl Intruder {
 #[derive(Debug, Clone)]
 pub struct Execution {
     pub unifier: Unifier,
+    mappings: Mappings,
     intruder: Option<Intruder>,
     states: Vec<ExecutionSessionState>,
     sessions: Rc<Vec<Session>>,
@@ -983,8 +1032,9 @@ impl Execution {
         for session in sessions.iter() {
             for actor in &protocol.actors {
                 for msg in &actor.initial_knowledge.0 {
+                    let msg = msg.substitute_all_agents(&protocol::ActorName("I".into()));
                     let registered_msg = converter.register_typed_message(
-                        None,
+                        Some(&"I".into()),
                         session.session_id,
                         &protocol.initiations,
                         msg.clone(),
@@ -998,6 +1048,7 @@ impl Execution {
         Execution {
             unifier,
             intruder: Some(intruder),
+            mappings,
             sessions,
             states,
             trace: vec![],
@@ -1060,14 +1111,19 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver: Some((
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .name
-                                                        .as_str()
-                                                        .into(),
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .actor_id,
-                                                )),
+                                                receiver:
+                                                    Some(
+                                                        (
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .name
+                                                                .as_str()
+                                                                .into(),
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .actor_id,
+                                                        ),
+                                                    ),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1154,14 +1210,19 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver: Some((
-                                                        new.sessions[session_i].actors[actor_i]
-                                                            .name
-                                                            .clone()
-                                                            .into(),
-                                                        new.states[session_i].actors[actor_i]
-                                                            .actor_id,
-                                                    )),
+                                                    receiver:
+                                                        Some(
+                                                            (
+                                                                new.sessions[session_i].actors
+                                                                    [actor_i]
+                                                                    .name
+                                                                    .clone()
+                                                                    .into(),
+                                                                new.states[session_i].actors
+                                                                    [actor_i]
+                                                                    .actor_id,
+                                                            ),
+                                                        ),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),
@@ -1192,7 +1253,9 @@ impl Execution {
 
     pub fn has_compromised_secrets(&mut self) -> bool {
         match &mut self.intruder {
-            Some(intruder) => intruder.has_achieved_goal(&self.sessions, &mut self.unifier),
+            Some(intruder) => {
+                intruder.has_achieved_goal(&self.sessions, &mut self.unifier, &mut self.mappings)
+            }
             None => false,
         }
     }
@@ -1245,4 +1308,21 @@ EX1: A1: Put A,B in inbox for B1
 
 
 
+*/
+
+/*
+problem with gloabl unification:
+A -> s: A, B
+s->A: {| KAB |}sk(A,s), {| KAB |}sk(B,s)
+A->B: A,{| KAB |}sk(B,s)
+
+
+if s thinks B~i but talks to i initially
+i -> s: A, i
+s->i: {| KAB |}sk(A,s), {| KAB |}sk(i,s)
+i->B: A,{| KAB |}sk(B,s)
+
+
+i then gets KAB but s thinks it is secure between (A,i,s) and B thinks it is secure between (i,B,s).
+here i plays the role of A and B when needed
 */

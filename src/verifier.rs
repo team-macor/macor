@@ -27,6 +27,7 @@ enum Message {
     Agent(String),
     Constant(String),
     Composition(Func<String>, Vec<Message>),
+    Tuple(Vec<Message>),
 }
 
 impl std::fmt::Display for Message {
@@ -36,12 +37,13 @@ impl std::fmt::Display for Message {
                 write!(f, "{}", inner)
             }
             Message::Composition(func, args) => match func {
-                Func::SymEnc => write!(f, "{{|{}|}}", args.iter().format(", ")),
-                Func::AsymEnc => write!(f, "{{{}}}", args.iter().format(", ")),
+                Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
+                Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
                 Func::User(name) => write!(f, "{}({})", name, args.iter().format(", ")),
             },
+            Message::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
         }
     }
 }
@@ -68,8 +70,11 @@ impl Message {
                         .collect(),
                 )
             }
-            messages::Message::Tuple(_) => Message::Variable(String::new()),
-            // messages::Message::Tuple(_) => todo!("can we have tuples at this stage?"),
+            messages::Message::Tuple(args) => Message::Tuple(
+                args.into_iter()
+                    .map(|msg| Message::from_message_id(msg, unifier))
+                    .collect(),
+            ),
         }
     }
 }

@@ -8,15 +8,17 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
 
     while let Some(message) = stack.pop() {
         // Axiom
+        // TODO: Fix this unification
         if knowledge
             .0
             .iter()
-            .any(|msg| unifier.are_unified(*msg, message))
+            .any(|msg| unifier.resolve_full(*msg) == unifier.resolve_full(message))
         {
             return true;
         }
 
         // Compose
+        // dbg!(unifier.resolve_full(message));
         match unifier.probe_value(message) {
             Message::Composition(func, args) => {
                 match func {
@@ -70,7 +72,23 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
                         }
                         let (message, key) = (&args[0], &args[1]);
 
+                        let res = can_derive(knowledge, *key, unifier);
+                        // println!(
+                        //     "Can we derive {:?} with knowledge [{:?}] -> {}\n",
+                        //     unifier.resolve_full(*key),
+                        //     knowledge
+                        //         .0
+                        //         .iter()
+                        //         .map(|msg| unifier.resolve_full(*msg))
+                        //         .format(", "),
+                        //     res
+                        // );
+
                         if can_derive(knowledge, *key, unifier) {
+                            // println!(
+                            //     "adding message {:?} to new_messages",
+                            //     unifier.resolve_full(*message)
+                            // );
                             new_messages.push(*message);
                         }
                     }
@@ -84,6 +102,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
                             new_messages.push(*message);
                         }
 
+                        // TODO: inv(key) should be goal here, not message
                         if can_derive(knowledge, *message, unifier) {
                             new_messages.push(*message);
                         }
@@ -112,6 +131,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
         }
 
         knowledge.0.append(&mut new_messages);
+
         assert_eq!(new_messages.len(), 0);
     }
 }

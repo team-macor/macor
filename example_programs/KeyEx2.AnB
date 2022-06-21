@@ -21,7 +21,5 @@ A->B: A,{| KAB |}sk(B,s)
  
 Goals: 
 
-A authenticates s on KAB,B
-B authenticates s on KAB,A
 KAB secret between A,B,s
 

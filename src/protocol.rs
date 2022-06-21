@@ -358,4 +358,30 @@ impl Message {
             Message::Tuple(ts) => ts.iter().flat_map(|t| t.extract_variables()).collect(),
         }
     }
+
+    pub(crate) fn substitute_all_agents(&self, agent: &ActorName) -> Self {
+        match self {
+            Message::Variable(var) => {
+                let new_var = match var {
+                    Variable::Actor(a) => Variable::Actor(agent.clone()),
+                    Variable::SymmetricKey(_) | Variable::Number(_) => var.clone(),
+                };
+
+                Message::Variable(new_var)
+            }
+            Message::Constant(_) => self.clone(),
+            Message::Composition { func, args } => Message::Composition {
+                func: func.clone(),
+                args: args
+                    .iter()
+                    .map(|msg| msg.substitute_all_agents(agent))
+                    .collect(),
+            },
+            Message::Tuple(args) => Message::Tuple(
+                args.iter()
+                    .map(|msg| msg.substitute_all_agents(agent))
+                    .collect(),
+            ),
+        }
+    }
 }
