@@ -200,14 +200,20 @@ impl Backend {
 
                 return;
             }
-        };
+        }
+        .into();
 
-        self.protocols.insert(uri.clone(), Arc::new(protocol));
+        self.protocols.insert(uri.clone(), Arc::clone(&protocol));
+
+        let validation_warnings = protocol.validate(&text);
 
         self.client
             .send_notification::<PublishDiagnostics>(PublishDiagnosticsParams {
-                uri,
-                diagnostics: vec![],
+                uri: uri.clone(),
+                diagnostics: validation_warnings
+                    .iter()
+                    .flat_map(move |err| self.diagnostic_into_lsp(&uri, err))
+                    .collect(),
                 version: None,
             })
             .await;

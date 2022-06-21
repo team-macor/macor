@@ -6,6 +6,7 @@ pub mod evaluation;
 pub mod messages;
 pub mod protocol;
 pub mod typing;
+pub mod validate;
 pub mod verifier;
 
 pub use macor_parse as parse;

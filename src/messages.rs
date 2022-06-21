@@ -735,32 +735,33 @@ pub struct Knowledge(pub Vec<MessageId>);
 type SmallStr = SmolStr;
 
 #[derive(Debug, Clone)]
-struct Transaction {
-    sender: MessageId,
-    receiver: MessageId,
-    direction: Direction,
-    messages: Vec<MessageId>,
+pub struct Transaction {
+    pub ast_node: protocol::PacketPattern,
+    pub sender: MessageId,
+    pub receiver: MessageId,
+    pub direction: Direction,
+    pub messages: Vec<MessageId>,
 }
 
 #[derive(Debug, Clone)]
-struct SessionActor {
-    name: Ident<SmallStr>,
-    actor_id: MessageId,
-    initial_knowledge: Knowledge,
-    strand: Vec<Transaction>,
+pub struct SessionActor {
+    pub name: Ident<SmallStr>,
+    pub actor_id: MessageId,
+    pub initial_knowledge: Knowledge,
+    pub strand: Vec<Transaction>,
 }
 
 #[derive(Debug, Clone)]
-struct Secret {
-    between_actors: Vec<MessageId>,
-    msg: MessageId,
+pub struct Secret {
+    pub between_actors: Vec<MessageId>,
+    pub msg: MessageId,
 }
 
 #[derive(Debug, Clone)]
 pub struct Session {
-    session_id: SessionId,
-    actors: Vec<SessionActor>,
-    secrets: Vec<Secret>,
+    pub session_id: SessionId,
+    pub actors: Vec<SessionActor>,
+    pub secrets: Vec<Secret>,
 }
 
 impl Session {
@@ -810,6 +811,7 @@ impl Session {
                         .messages
                         .iter()
                         .map(|pattern| Transaction {
+                            ast_node: pattern.clone(),
                             sender: converter.get_actor(Some(session_id), &pattern.from),
                             receiver: converter.get_actor(Some(session_id), &pattern.to),
                             direction: pattern.direction,
@@ -901,7 +903,7 @@ impl Session {
 }
 
 impl Knowledge {
-    fn can_construct(&self, unifier: &mut Unifier, msg: MessageId) -> bool {
+    pub fn can_construct(&self, unifier: &mut Unifier, msg: MessageId) -> bool {
         // eprintln!(
         //     "Can construct {:?} with knowledge {:?}",
         //     unifier.resolve_full(msg),
@@ -1132,19 +1134,14 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver:
-                                                    Some(
-                                                        (
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .name
-                                                                .as_str()
-                                                                .into(),
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .actor_id,
-                                                        ),
-                                                    ),
+                                                receiver: Some((
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .name
+                                                        .as_str()
+                                                        .into(),
+                                                    self.sessions[session_i].actors[receiver_i]
+                                                        .actor_id,
+                                                )),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1231,19 +1228,14 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver:
-                                                        Some(
-                                                            (
-                                                                new.sessions[session_i].actors
-                                                                    [actor_i]
-                                                                    .name
-                                                                    .clone()
-                                                                    .into(),
-                                                                new.states[session_i].actors
-                                                                    [actor_i]
-                                                                    .actor_id,
-                                                            ),
-                                                        ),
+                                                    receiver: Some((
+                                                        new.sessions[session_i].actors[actor_i]
+                                                            .name
+                                                            .clone()
+                                                            .into(),
+                                                        new.states[session_i].actors[actor_i]
+                                                            .actor_id,
+                                                    )),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),

@@ -114,7 +114,7 @@ pub struct Nonce(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Packet {
-    messages: Vec<Message>,
+    pub messages: Vec<Message>,
 }
 
 impl FromIterator<Message> for Packet {
@@ -387,5 +387,49 @@ impl Message {
                     .collect(),
             ),
         }
+    }
+
+    pub fn span(&self) -> Option<miette::SourceSpan> {
+        match self {
+            Message::Variable(var) => match var {
+                Variable::Actor(a) => Some(a.span()),
+                Variable::SymmetricKey(n) | Variable::Number(n) => Some(n.span()),
+            },
+            Message::Constant(c) => match c {
+                Constant::Intruder => None,
+                Constant::Actor(a) => Some(a.span()),
+                Constant::Function(f) => match f {
+                    Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => None,
+                    Func::User(f) => Some(f.span()),
+                },
+                Constant::Nonce(_) => None,
+            },
+            Message::Composition { func, args } => args.iter().filter_map(|arg| arg.span()).fold(
+                match func {
+                    Func::SymEnc => None,
+                    Func::AsymEnc => None,
+                    Func::Exp => None,
+                    Func::Inv => None,
+                    Func::User(u) => Some(u.span()),
+                },
+                |a, b| match a {
+                    Some(a) => Some(join_span(a, b)),
+                    None => Some(b),
+                },
+            ),
+            Message::Tuple(_) => todo!(),
+        }
+    }
+}
+
+fn join_span(a: miette::SourceSpan, b: miette::SourceSpan) -> miette::SourceSpan {
+    let start = a.offset().min(b.offset());
+    let end = (a.offset() + a.len()).max(b.offset() + b.len());
+
+    (start, end).into()
+}
+impl ActorName {
+    pub fn span(&self) -> miette::SourceSpan {
+        self.0 .1
     }
 }
