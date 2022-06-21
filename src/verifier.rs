@@ -276,7 +276,7 @@ impl Verifier {
                     sessions.clone(),
                 ));
 
-                while let Some(mut execution) = worklist.pop_front() {
+                while let Some(execution) = worklist.pop_front() {
                     // execution.print_trace();
                     num_executions += 1;
                     let mut nexts = execution.possible_next().peekable();

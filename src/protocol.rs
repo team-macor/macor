@@ -303,7 +303,12 @@ impl Protocol {
             .goals
             .iter()
             .map(|goal| match goal {
-                ast::Goal::Authenticates { a, b, msgs, weakly } => Goal::Authenticates(
+                ast::Goal::Authenticates {
+                    a,
+                    b,
+                    msgs,
+                    weakly: _,
+                } => Goal::Authenticates(
                     ActorName(a.convert()),
                     ActorName(b.convert()),
                     msgs.iter()
@@ -313,7 +318,7 @@ impl Protocol {
                 ast::Goal::SecretBetween {
                     msgs,
                     agents,
-                    guessable,
+                    guessable: _,
                 } => Goal::SecretBetween(
                     agents
                         .iter()
@@ -363,7 +368,7 @@ impl Message {
         match self {
             Message::Variable(var) => {
                 let new_var = match var {
-                    Variable::Actor(a) => Variable::Actor(agent.clone()),
+                    Variable::Actor(_) => Variable::Actor(agent.clone()),
                     Variable::SymmetricKey(_) | Variable::Number(_) => var.clone(),
                 };
 

@@ -929,49 +929,35 @@ impl Intruder {
                 let mut new_mappings = mappings.clone();
                 let mut converter = Converter::new(&mut new_unifier, &mut new_mappings);
 
-                let intruder_id = converter
-                    .get_actor(Some(sess.session_id), &protocol::ActorName("I".into()));
+                let intruder_id =
+                    converter.get_actor(Some(sess.session_id), &protocol::ActorName("I".into()));
                 augment_knowledge(&mut knowledge, &mut new_unifier);
 
-                for actor_id in sess.actors.iter().map(|actor| actor.actor_id).chain(Some(intruder_id)) {
-                    let mut knowledge = self.knowledge.clone();
-                    let mut new_unifier = unifier.clone();
-                    let mut new_mappings = mappings.clone();
-                    let mut converter = Converter::new(&mut new_unifier, &mut new_mappings);
+                println!(
+                    "Trying to construct {:?} with knowledge [{:?}]\n",
+                    new_unifier.resolve_full(secret.msg),
+                    knowledge
+                        .0
+                        .iter()
+                        .map(|msg| new_unifier.resolve_full(*msg))
+                        .format(", ")
+                );
 
-                    let intruder_id = converter
-                        .get_actor(Some(sess.session_id), &protocol::ActorName("I".into()));
-                    if new_unifier.unify(intruder_id, actor_id).is_err() {
-                        continue;
-                    }
-                    augment_knowledge(&mut knowledge, &mut new_unifier);
-
-                    println!(
-                        "Trying to construct {:?} with knowledge [{:?}]\n",
-                        new_unifier.resolve_full(secret.msg),
-                        knowledge
-                            .0
-                            .iter()
-                            .map(|msg| new_unifier.resolve_full(*msg))
-                            .format(", ")
-                    );
-
-                    for &k in &knowledge.0 {
-                        if new_unifier.unify(secret.msg, k).is_ok()
-                        // if self.knowledge.can_construct(unifier, secret)
-                            && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
-                            .between_actors
-                            .iter()
-                            .any(|agent| new_unifier.are_unified(intruder_id, *agent))
-                        {
-                            eprintln!(
-                                "LEAKED {:?} ({:?})",
-                                new_unifier.resolve_full(secret.msg),
-                                unifier.resolve_full(k)
-                            );
-                            *unifier = new_unifier;
-                            return true;
-                        }
+                for &k in &knowledge.0 {
+                    if new_unifier.unify(secret.msg, k).is_ok()
+                    // if self.knowledge.can_construct(unifier, secret)
+                        && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
+                        .between_actors
+                        .iter()
+                        .any(|agent| new_unifier.are_unified(intruder_id, *agent))
+                    {
+                        eprintln!(
+                            "LEAKED {:?} ({:?})",
+                            new_unifier.resolve_full(secret.msg),
+                            unifier.resolve_full(k)
+                        );
+                        *unifier = new_unifier;
+                        return true;
                     }
                 }
 

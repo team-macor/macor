@@ -72,18 +72,6 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
                         }
                         let (message, key) = (&args[0], &args[1]);
 
-                        let res = can_derive(knowledge, *key, unifier);
-                        // println!(
-                        //     "Can we derive {:?} with knowledge [{:?}] -> {}\n",
-                        //     unifier.resolve_full(*key),
-                        //     knowledge
-                        //         .0
-                        //         .iter()
-                        //         .map(|msg| unifier.resolve_full(*msg))
-                        //         .format(", "),
-                        //     res
-                        // );
-
                         if can_derive(knowledge, *key, unifier) {
                             // println!(
                             //     "adding message {:?} to new_messages",
