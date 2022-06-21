@@ -78,7 +78,7 @@ fn main() -> miette::Result<()> {
         }
         Args::Pretty { file } => {
             let src = std::fs::read_to_string(file).unwrap();
-            print!("{}", macor_fmt::prettify(src).unwrap());
+            print!("{}", macor_fmt::prettify(&src).unwrap().unwrap());
         }
 
         Args::ParserPerf(variant) => {
