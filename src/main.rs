@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use macor::verifier::{Verification, Verifier};
 
 /// Simple program to greet a person
@@ -34,8 +34,22 @@ enum Args {
         #[clap(value_parser)]
         file: PathBuf,
     },
+    #[clap(subcommand)]
+    ParserPerf(ParserVariant),
 }
-
+#[derive(Subcommand, Debug)]
+enum ParserVariant {
+    Chumsky {
+        /// The path to the protocol src
+        #[clap(value_parser)]
+        file: PathBuf,
+    },
+    Lalrpop {
+        /// The path to the protocol src
+        #[clap(value_parser)]
+        file: PathBuf,
+    },
+}
 fn main() -> miette::Result<()> {
     miette::set_hook(box |_| {
         box miette::MietteHandlerOpts::new()
@@ -65,6 +79,24 @@ fn main() -> miette::Result<()> {
         Args::Pretty { file } => {
             let src = std::fs::read_to_string(file).unwrap();
             print!("{}", macor_fmt::prettify(src).unwrap());
+        }
+
+        Args::ParserPerf(variant) => {
+            let runs = 10000;
+            match variant {
+                ParserVariant::Chumsky { file } => {
+                    let src = std::fs::read_to_string(file).unwrap();
+                    for _ in 0..runs {
+                        macor_parse::chumskyparse::parse_document(&src).0.unwrap();
+                    }
+                }
+                ParserVariant::Lalrpop { file } => {
+                    let src = std::fs::read_to_string(file).unwrap();
+                    for _ in 0..runs {
+                        macor_parse::parse_document(&src).unwrap();
+                    }
+                }
+            }
         }
     }
 
