@@ -1,15 +1,34 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use macor::protocol::{Protocol};
-use std::{
-    path::PathBuf,
-    process::Command,
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, process::Command};
 
-pub fn bench_programs(c: &mut Criterion){
+pub fn bench_macor(c: &mut Criterion) {
+    let macor_path = "./target/release/macor";
+    let protocol = "../example_programs/KeyEx1";
+    let num_session = 1;
+    let num_samples = 10;
+    let mut group = c.benchmark_group("Macor");
+    group.bench_function("MACOR", |b| {
+        b.iter(|| {
+            for _ in 0..num_samples {
+                // macor verify -n 2 path/to/my/Protocol.AnB
+                let _macor = Command::new(&macor_path)
+                    .arg("verify")
+                    .arg("-n")
+                    .arg(num_session.to_string())
+                    .arg(&protocol)
+                    .output()
+                    .expect("Could not find path for MACOR");
+            }
+        })
+    });
+    group.finish();
+}
+
+pub fn bench_compare(c: &mut Criterion) {
+    //TODO ofmc path not hardcoded
     let ofmc_path: PathBuf = "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into();
-    let macor_path: PathBuf = "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/release/macor".into();
-    let protocol: PathBuf =  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into();
+    let macor_path = "../target/release/macor";
+    let protocol = "../example_programs/KeyEx1";
     let num_session = 1;
     let num_samples = 10;
     let mut group = c.benchmark_group("Programs");
@@ -29,8 +48,7 @@ pub fn bench_programs(c: &mut Criterion){
 
     group.bench_function("MACOR", |b| {
         b.iter(|| {
-            for _ in 0..num_samples{
-                // macor verify -n 2 path/to/my/Protocol.AnB
+            for _ in 0..num_samples {
                 let _macor = Command::new(&macor_path)
                     .arg("verify")
                     .arg("-n")
@@ -38,13 +56,12 @@ pub fn bench_programs(c: &mut Criterion){
                     .arg(&protocol)
                     .output()
                     .expect("Could not find path for MACOR");
-                }
+            }
         })
     });
     group.finish();
 }
 
-
-criterion_group!(benches, bench_programs);
+//criterion_group!(benches, bench_compare);
+criterion_group!(benches, bench_macor);
 criterion_main!(benches);
-
