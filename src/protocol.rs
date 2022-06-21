@@ -103,6 +103,7 @@ pub enum Variable {
 }
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Constant {
+    Intruder,
     Actor(ActorName),
     Function(Func),
     Nonce(Nonce),
@@ -359,27 +360,25 @@ impl Message {
         }
     }
 
-    pub(crate) fn substitute_all_agents(&self, agent: &ActorName) -> Self {
+    pub(crate) fn replace_agent_with_intruder(&self, current_agent: &ActorName) -> Self {
         match self {
-            Message::Variable(var) => {
-                let new_var = match var {
-                    Variable::Actor(a) => Variable::Actor(agent.clone()),
-                    Variable::SymmetricKey(_) | Variable::Number(_) => var.clone(),
-                };
-
-                Message::Variable(new_var)
-            }
+            Message::Variable(var) => match var {
+                Variable::Actor(a) if a == current_agent => Message::Constant(Constant::Intruder),
+                Variable::SymmetricKey(_) | Variable::Number(_) | Variable::Actor(_) => {
+                    Message::Variable(var.clone())
+                }
+            },
             Message::Constant(_) => self.clone(),
             Message::Composition { func, args } => Message::Composition {
                 func: func.clone(),
                 args: args
                     .iter()
-                    .map(|msg| msg.substitute_all_agents(agent))
+                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
                     .collect(),
             },
             Message::Tuple(args) => Message::Tuple(
                 args.iter()
-                    .map(|msg| msg.substitute_all_agents(agent))
+                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
                     .collect(),
             ),
         }
