@@ -47,7 +47,7 @@ impl Evaluation {
                 .expect("Could not find path for MACOR");
             macor_time += now.elapsed();
         }
-
+        dbg!("macor time: {:?}, ofmc_time: {:?}", macor_time/num_samples, ofmc_time/num_samples );
         TimingResult {
             ofmc_time: ofmc_time / num_samples,
             macor_time: macor_time / num_samples,
@@ -155,13 +155,23 @@ mod tests {
     }
 }
 
- #[test]
- fn some_test() {
+//  #[test]
+//  fn some_test() {
+//     Evaluation {
+//         ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
+//         macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/debug/macor".into(),
+//         protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
+//         num_session: 1,
+//     }.
+//    evaluate_output();
+// }
+
+#[test]
+fn compare_time() {
     Evaluation {
         ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
-        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/debug/macor".into(),
+        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/release/macor".into(),
         protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
         num_session: 1,
-    }.
-   evaluate_output();
+    }.evaluate_time(10);
 }
