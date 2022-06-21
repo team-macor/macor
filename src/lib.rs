@@ -44,6 +44,12 @@ mod tests {
         "../example_programs/AasBAttack.AnB",
         true
     );
+    test_protocol!(test_simple_sym, "../example_programs/SimpleSym.AnB", true);
+    test_protocol!(
+        test_bad_secret_between,
+        "../example_programs/BadSecretBetween.AnB",
+        true
+    );
     test_protocol!(test_protocol_ex1, "../example_programs/KeyEx1.AnB", true);
     test_protocol!(test_protocol_ex2, "../example_programs/KeyEx2.AnB", true);
     test_protocol!(test_protocol_ex3, "../example_programs/KeyEx3.AnB", true);

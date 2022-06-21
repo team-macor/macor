@@ -3,6 +3,7 @@ Protocol: SimpleSym
 Types:
     Agent A,s;
     Symmetric_key KAB;
+    Number NA,NB;
     Function sk
 
 Knowledge:
@@ -12,6 +13,7 @@ Knowledge:
 Actions:
     A->s: A
     s->A: {| KAB |}sk(A,s)
+    A->s: sk(A,s)
 
 Goals:
-    KAB secret between s
+    KAB secret between s,A

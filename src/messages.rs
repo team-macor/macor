@@ -51,9 +51,15 @@ impl std::fmt::Debug for ConstantId {
 pub struct MessageId(u32);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Actor {
+    Actor(Option<SmolStr>),
+    Intruder,
+}
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Message<M> {
-    Variable(Option<String>),
-    Agent(Option<String>),
+    Variable(Option<SmolStr>),
+    Agent(Actor),
     Constant(ConstantId),
     Composition(Func<ConstantId>, Vec<M>),
     Tuple(Vec<M>),
@@ -69,7 +75,10 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
                     write!(f, "Var")
                 }
             }
-            Self::Agent(arg0) => {
+            Self::Agent(Actor::Intruder) => {
+                write!(f, "Agent(i)")
+            }
+            Self::Agent(Actor::Actor(arg0)) => {
                 if let Some(k) = arg0 {
                     write!(f, "Agent({})", k)
                 } else {
@@ -90,7 +99,7 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FullMessage(Message<FullMessage>);
+pub struct FullMessage(pub Message<FullMessage>);
 
 impl std::fmt::Debug for FullMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,7 +121,12 @@ impl UnifyValue for Message<MessageId> {
                 Composition(func.clone(), args.clone())
             }
             (Variable(_), Tuple(ts)) | (Tuple(ts), Variable(_)) => Tuple(ts.clone()),
-            (Agent(l), Agent(r)) => Agent(l.clone().or_else(|| r.clone())),
+            (Agent(Actor::Intruder), Agent(a)) | (Agent(a), Agent(Actor::Intruder)) => {
+                Agent(Actor::Intruder)
+            }
+            (Agent(Actor::Actor(l)), Agent(Actor::Actor(r))) => {
+                Agent(Actor::Actor(l.clone().or_else(|| r.clone())))
+            }
             (Constant(l), Constant(r)) => {
                 if l == r {
                     Constant(*l)
@@ -171,7 +185,7 @@ pub struct Unifier {
 impl Default for Unifier {
     fn default() -> Self {
         let mut table = InPlaceUnificationTable::default();
-        let intruder = table.new_key(Message::Constant(ConstantId(0, Some("i"))));
+        let intruder = table.new_key(Message::Agent(Actor::Intruder));
         Self { intruder, table }
     }
 }
@@ -248,6 +262,27 @@ impl Unifier {
 
         false
     }
+    // pub fn try_unify(&mut self, a: MessageId, b: MessageId) -> Result<(), ()> {
+    //     // TODO: Should this be recursive?
+    //     if self.table.unioned(a, b) {
+    //         return Ok(());
+    //     }
+
+    //     use self::Message::*;
+
+    //     match (self.probe_value(a), self.probe_value(b)) {
+    //         (Message::Agent(_))
+    //         (a, b) => todo!("{:?} {:?}", a, b),
+    //     }
+
+    //     // println!(
+    //     //     "Are unified: {:?} with {:?}",
+    //     //     self.resolve_full(a),
+    //     //     self.resolve_full(b)
+    //     // );
+
+    //     false
+    // }
 
     pub fn probe_value(&mut self, id: MessageId) -> Message<MessageId> {
         self.table.probe_value(id)
@@ -494,14 +529,12 @@ impl<'a> Converter<'a> {
                     self.mappings.next_constant += 1;
                     self.unifier.table.new_key(Message::Constant(cid))
                 }
-                Some(session_id) => self.unifier.table.new_key(Message::Agent(Some(format!(
-                    "{}_{}",
-                    agent.0, session_id.0
+                Some(session_id) => self.unifier.table.new_key(Message::Agent(Actor::Actor(Some(
+                    format!("{}_{}", agent.0, session_id.0).into(),
                 )))),
-                _ => self
-                    .unifier
-                    .table
-                    .new_key(Message::Agent(Some(format!("{}", agent.0)))),
+                _ => self.unifier.table.new_key(Message::Agent(Actor::Actor(Some(
+                    format!("{}", agent.0).into(),
+                )))),
             })
     }
     pub fn get_function_constant(&mut self, func: Func) -> MessageId {
@@ -578,10 +611,9 @@ impl<'a> Converter<'a> {
                 variable: variable_name.into(),
             })
             .or_insert_with(|| {
-                self.unifier.table.new_key(Message::Variable(Some(format!(
-                    "{}@{}:{}",
-                    agent, session_id.0, variable_name
-                ))))
+                self.unifier.table.new_key(Message::Variable(Some(
+                    format!("{}@{}:{}", agent, session_id.0, variable_name).into(),
+                )))
             })
     }
 
@@ -630,6 +662,7 @@ impl<'a> Converter<'a> {
             protocol::Message::Constant(c) => match c {
                 protocol::Constant::Actor(a) => self.get_actor(Some(session_id), &a),
                 protocol::Constant::Function(f) => self.get_function_constant(f),
+                protocol::Constant::Intruder => self.unifier.intruder(),
                 protocol::Constant::Nonce(_) => todo!(),
             },
             protocol::Message::Composition { func, args } => {
@@ -718,10 +751,16 @@ struct SessionActor {
 }
 
 #[derive(Debug, Clone)]
+struct Secret {
+    between_actors: Vec<MessageId>,
+    msg: MessageId,
+}
+
+#[derive(Debug, Clone)]
 pub struct Session {
     session_id: SessionId,
     actors: Vec<SessionActor>,
-    secrets: Vec<MessageId>,
+    secrets: Vec<Secret>,
 }
 
 impl Session {
@@ -796,15 +835,19 @@ impl Session {
             .goals
             .iter()
             .flat_map(|goal| match goal {
-                protocol::Goal::SecretBetween(_, msgs) => msgs
+                protocol::Goal::SecretBetween(agents, msgs) => msgs
                     .iter()
-                    .map(|msg| {
-                        converter.register_typed_message(
+                    .map(|msg| Secret {
+                        between_actors: agents
+                            .iter()
+                            .map(|agent| converter.get_actor(Some(session_id), agent))
+                            .collect(),
+                        msg: converter.register_typed_message(
                             None,
                             session_id,
                             &protocol.initiations,
                             msg.clone(),
-                        )
+                        ),
                     })
                     .collect_vec(),
                 protocol::Goal::Authenticates(_, _, _) => {
@@ -852,7 +895,7 @@ impl Session {
         println!();
         println!("=== SECRETS ===");
         for secret in &self.secrets {
-            println!("{:?}", unifier.resolve_full(*secret));
+            println!("{:?}", unifier.resolve_full(secret.msg));
         }
     }
 }
@@ -907,22 +950,38 @@ struct Intruder {
 
 impl Intruder {
     fn has_achieved_goal(&mut self, sessions: &[Session], unifier: &mut Unifier) -> bool {
-        augment_knowledge(&mut self.knowledge, unifier);
         sessions.iter().any(|sess| {
-            sess.secrets.iter().any(|&secret| {
-                for &k in &self.knowledge.0 {
-                    let mut new = unifier.clone();
+            sess.secrets.iter().any(|secret| {
+                let mut knowledge = self.knowledge.clone();
+                let mut new_unifier = unifier.clone();
 
-                    if new.unify(secret, k).is_ok()
+                let intruder_id = unifier.intruder();
+                augment_knowledge(&mut knowledge, &mut new_unifier);
+
+                println!(
+                    "Trying to construct {:?} with knowledge [{:?}]\n",
+                    new_unifier.resolve_full(secret.msg),
+                    knowledge
+                        .0
+                        .iter()
+                        .map(|msg| new_unifier.resolve_full(*msg))
+                        .format(", ")
+                );
+
+                for &k in &knowledge.0 {
+                    if new_unifier.unify(secret.msg, k).is_ok()
                     // if self.knowledge.can_construct(unifier, secret)
-                        && self.conforms_to_constraints_without_augment(unifier)
+                        && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
+                        .between_actors
+                        .iter()
+                        .any(|agent| new_unifier.are_unified(intruder_id, *agent))
                     {
                         eprintln!(
                             "LEAKED {:?} ({:?})",
-                            new.resolve_full(secret),
+                            new_unifier.resolve_full(secret.msg),
                             unifier.resolve_full(k)
                         );
-                        *unifier = new;
+                        *unifier = new_unifier;
                         return true;
                     }
                 }
@@ -959,7 +1018,7 @@ pub struct Execution {
 impl Execution {
     pub fn new(
         protocol: &Protocol,
-        mut mappings: Mappings,
+        mappings: &mut Mappings,
         mut unifier: Unifier,
         sessions: Rc<Vec<Session>>,
     ) -> Self {
@@ -978,19 +1037,32 @@ impl Execution {
             })
             .collect();
 
+        let mut converter = Converter::new(&mut unifier, mappings);
         let mut intruder = Intruder::default();
-        let mut converter = Converter::new(&mut unifier, &mut mappings);
         for session in sessions.iter() {
             for actor in &protocol.actors {
+                if actor.name.0.is_constant() {
+                    continue;
+                }
+
                 for msg in &actor.initial_knowledge.0 {
+                    let msg = msg.replace_agent_with_intruder(&actor.name);
                     let registered_msg = converter.register_typed_message(
+                        // TODO: ???
                         None,
                         session.session_id,
                         &protocol.initiations,
                         msg.clone(),
                     );
 
-                    intruder.knowledge.0.push(registered_msg);
+                    if intruder
+                        .knowledge
+                        .0
+                        .iter()
+                        .all(|&msg| !converter.unifier.are_unified(msg, registered_msg))
+                    {
+                        intruder.knowledge.0.push(registered_msg);
+                    }
                 }
             }
         }
@@ -1060,14 +1132,19 @@ impl Execution {
                                                     actor.name.as_str().into(),
                                                     actor.actor_id,
                                                 )),
-                                                receiver: Some((
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .name
-                                                        .as_str()
-                                                        .into(),
-                                                    self.sessions[session_i].actors[receiver_i]
-                                                        .actor_id,
-                                                )),
+                                                receiver:
+                                                    Some(
+                                                        (
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .name
+                                                                .as_str()
+                                                                .into(),
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .actor_id,
+                                                        ),
+                                                    ),
                                                 messages: transaction.messages.clone(),
                                             }
                                             .into(),
@@ -1154,14 +1231,19 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver: Some((
-                                                        new.sessions[session_i].actors[actor_i]
-                                                            .name
-                                                            .clone()
-                                                            .into(),
-                                                        new.states[session_i].actors[actor_i]
-                                                            .actor_id,
-                                                    )),
+                                                    receiver:
+                                                        Some(
+                                                            (
+                                                                new.sessions[session_i].actors
+                                                                    [actor_i]
+                                                                    .name
+                                                                    .clone()
+                                                                    .into(),
+                                                                new.states[session_i].actors
+                                                                    [actor_i]
+                                                                    .actor_id,
+                                                            ),
+                                                        ),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),
@@ -1201,7 +1283,7 @@ impl Execution {
         println!("---------------------------");
         if let Some(intruder) = &self.intruder {
             println!(
-                "Intruder knowledge: {:?}",
+                "# Intruder knowledge:\n  {:?}",
                 intruder
                     .knowledge
                     .0
@@ -1211,6 +1293,7 @@ impl Execution {
             );
         }
 
+        println!();
         println!("Sessions");
         for ses in self.sessions.iter() {
             ses.print(&mut self.unifier);
@@ -1245,4 +1328,21 @@ EX1: A1: Put A,B in inbox for B1
 
 
 
+*/
+
+/*
+problem with gloabl unification:
+A -> s: A, B
+s->A: {| KAB |}sk(A,s), {| KAB |}sk(B,s)
+A->B: A,{| KAB |}sk(B,s)
+
+
+if s thinks B~i but talks to i initially
+i -> s: A, i
+s->i: {| KAB |}sk(A,s), {| KAB |}sk(i,s)
+i->B: A,{| KAB |}sk(B,s)
+
+
+i then gets KAB but s thinks it is secure between (A,i,s) and B thinks it is secure between (i,B,s).
+here i plays the role of A and B when needed
 */

@@ -103,6 +103,7 @@ pub enum Variable {
 }
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Constant {
+    Intruder,
     Actor(ActorName),
     Function(Func),
     Nonce(Nonce),
@@ -303,7 +304,12 @@ impl Protocol {
             .goals
             .iter()
             .map(|goal| match goal {
-                ast::Goal::Authenticates { a, b, msgs, weakly } => Goal::Authenticates(
+                ast::Goal::Authenticates {
+                    a,
+                    b,
+                    msgs,
+                    weakly: _,
+                } => Goal::Authenticates(
                     ActorName(a.convert()),
                     ActorName(b.convert()),
                     msgs.iter()
@@ -313,7 +319,7 @@ impl Protocol {
                 ast::Goal::SecretBetween {
                     msgs,
                     agents,
-                    guessable,
+                    guessable: _,
                 } => Goal::SecretBetween(
                     agents
                         .iter()
@@ -356,6 +362,30 @@ impl Message {
                 .flat_map(|arg| arg.extract_variables())
                 .collect(),
             Message::Tuple(ts) => ts.iter().flat_map(|t| t.extract_variables()).collect(),
+        }
+    }
+
+    pub(crate) fn replace_agent_with_intruder(&self, current_agent: &ActorName) -> Self {
+        match self {
+            Message::Variable(var) => match var {
+                Variable::Actor(a) if a == current_agent => Message::Constant(Constant::Intruder),
+                Variable::SymmetricKey(_) | Variable::Number(_) | Variable::Actor(_) => {
+                    Message::Variable(var.clone())
+                }
+            },
+            Message::Constant(_) => self.clone(),
+            Message::Composition { func, args } => Message::Composition {
+                func: func.clone(),
+                args: args
+                    .iter()
+                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
+                    .collect(),
+            },
+            Message::Tuple(args) => Message::Tuple(
+                args.iter()
+                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
+                    .collect(),
+            ),
         }
     }
 }

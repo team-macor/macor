@@ -18,6 +18,7 @@ match {
     "}",
     "{|",
     "|}",
+    "!",
     "!=",
     "Protocol",
     "Types",
@@ -98,5 +99,11 @@ pub Message: Message<&'input str> = {
     "{"  <msgs:Sep<",", Message>>  "}" "(" <key:Message> ")" => Message::AsymEnc(msgs, Box::new(key)),
     "{"  <msgs:Sep<",", Message>>  "}" <key:Message> => Message::AsymEnc(msgs, Box::new(key)),
 };
+
+pub NegMessages: Vec<(Message<&'input str>, bool)> = Sep<",", NegMessage>;
+pub NegMessage: (Message<&'input str>, bool) = {
+    "!" <Message> => (<>, false),
+    <Message> => (<>, true),
+}
 
 Ident: Ident<&'input str> = <l:@L> <i:r"[a-zA-Z_][a-zA-Z_0-9]*"> <r:@R> => Ident(i, (l, r - l).into());

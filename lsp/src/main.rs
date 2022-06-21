@@ -11,6 +11,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 struct Backend {
     sources: DashMap<Url, Arc<String>>,
     asts: DashMap<Url, Arc<macor::parse::ast::Document<String>>>,
+    protocols: DashMap<Url, Arc<macor::protocol::Protocol>>,
     client: Client,
 }
 
@@ -173,8 +174,8 @@ impl Backend {
         self.asts
             .insert(uri.clone(), Arc::new(ast.clone().map(|s| s.into())));
 
-        match macor::protocol::Protocol::new(text.to_string(), ast) {
-            Ok(_) => {}
+        let protocol = match macor::protocol::Protocol::new(text.to_string(), ast) {
+            Ok(protocol) => protocol,
             Err(errors) => {
                 let diagnostics = errors
                     .iter()
@@ -191,7 +192,9 @@ impl Backend {
 
                 return;
             }
-        }
+        };
+
+        self.protocols.insert(uri.clone(), Arc::new(protocol));
 
         self.client
             .send_notification::<PublishDiagnostics>(PublishDiagnosticsParams {
@@ -212,6 +215,7 @@ async fn main() {
         client,
         sources: Default::default(),
         asts: Default::default(),
+        protocols: Default::default(),
     });
     Server::new(stdin, stdout, socket).serve(service).await;
 }
