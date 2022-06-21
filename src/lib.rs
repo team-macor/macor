@@ -52,12 +52,12 @@ mod tests {
     );
     test_protocol!(test_protocol_ex1, "../example_programs/KeyEx1.AnB", true);
     test_protocol!(test_protocol_ex2, "../example_programs/KeyEx2.AnB", true);
-    test_protocol!(test_protocol_ex3, "../example_programs/KeyEx3.AnB", true);
-    test_protocol!(test_protocol_ex3b, "../example_programs/KeyEx3b.AnB", true);
-    test_protocol!(test_protocol_ex4, "../example_programs/KeyEx4.AnB", true);
-    test_protocol!(test_protocol_ex4b, "../example_programs/KeyEx4b.AnB", true);
-    test_protocol!(test_protocol_ex5, "../example_programs/KeyEx5.AnB", true);
-    test_protocol!(test_protocol_ex5b, "../example_programs/KeyEx5b.AnB", true);
+    test_protocol!(test_protocol_ex3, "../example_programs/KeyEx3.AnB", false);
+    test_protocol!(test_protocol_ex3b, "../example_programs/KeyEx3b.AnB", false);
+    test_protocol!(test_protocol_ex4, "../example_programs/KeyEx4.AnB", false);
+    test_protocol!(test_protocol_ex4b, "../example_programs/KeyEx4b.AnB", false);
+    test_protocol!(test_protocol_ex5, "../example_programs/KeyEx5.AnB", false);
+    test_protocol!(test_protocol_ex5b, "../example_programs/KeyEx5b.AnB", false);
     test_protocol!(test_protocol_ex5c, "../example_programs/KeyEx5c.AnB", false);
     test_protocol!(test_protocol_ex6, "../example_programs/KeyEx6.AnB", false);
 }

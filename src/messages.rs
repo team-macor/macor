@@ -65,6 +65,9 @@ pub enum Message<M> {
     Tuple(Vec<M>),
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FullMessage(pub Message<FullMessage>);
+
 impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -97,9 +100,6 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
         }
     }
 }
-
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FullMessage(pub Message<FullMessage>);
 
 impl std::fmt::Debug for FullMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
