@@ -109,6 +109,16 @@ pub fn parse_messages(arg: &str) -> Result<Vec<Message<&str>>, ParseError> {
     }
 }
 
+pub fn parse_neg_messages(arg: &str) -> Result<Vec<(Message<&str>, bool)>, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::NegMessagesParser> =
+        once_cell::sync::Lazy::new(parser::NegMessagesParser::new);
+
+    match PARSER.parse(arg) {
+        Ok(p) => Ok(p),
+        Err(e) => Err(ParseError::new(arg, e)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
