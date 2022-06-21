@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use itertools::Itertools;
 
 use crate::{
-    messages::{self, Converter, Execution, Unifier},
+    messages::{self, Converter, Execution, FullMessage, Message, Unifier},
     protocol::{Func, Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
@@ -22,59 +22,23 @@ impl std::fmt::Display for Participant {
     }
 }
 
-enum Message {
-    Variable(String),
-    Agent(String),
-    Constant(String),
-    Composition(Func<String>, Vec<Message>),
-    Tuple(Vec<Message>),
-}
-
-impl std::fmt::Display for Message {
+impl std::fmt::Display for FullMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Message::Variable(inner) | Message::Agent(inner) | Message::Constant(inner) => {
-                write!(f, "{}", inner)
+        match &self.0 {
+            Message::Variable(inner) => write!(f, "{}", inner.as_ref().unwrap()),
+            Message::Agent(messages::Actor::Intruder) => write!(f, "i"),
+            Message::Agent(messages::Actor::Actor(a)) => write!(f, "{}", a.as_ref().unwrap()),
+            Message::Constant(inner) => {
+                write!(f, "{}", inner.1.unwrap())
             }
             Message::Composition(func, args) => match func {
                 Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
-                Func::User(name) => write!(f, "{}({})", name, args.iter().format(", ")),
+                Func::User(name) => write!(f, "{}({})", name.1.unwrap(), args.iter().format(", ")),
             },
             Message::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
-        }
-    }
-}
-
-impl Message {
-    fn from_message_id(msg: messages::MessageId, unifier: &mut Unifier) -> Message {
-        match unifier.probe_value(msg) {
-            messages::Message::Variable(var) => Message::Variable(var.unwrap()),
-            messages::Message::Agent(agent) => Message::Agent(agent.unwrap()),
-            messages::Message::Constant(con) => Message::Constant(con.1.unwrap().to_string()),
-            messages::Message::Composition(func, args) => {
-                let func = match func {
-                    Func::User(id) => Func::User(id.1.unwrap().to_string()),
-                    Func::SymEnc => Func::SymEnc,
-                    Func::AsymEnc => Func::AsymEnc,
-                    Func::Exp => Func::Exp,
-                    Func::Inv => Func::Inv,
-                };
-
-                Message::Composition(
-                    func,
-                    args.into_iter()
-                        .map(|msg| Message::from_message_id(msg, unifier))
-                        .collect(),
-                )
-            }
-            messages::Message::Tuple(args) => Message::Tuple(
-                args.into_iter()
-                    .map(|msg| Message::from_message_id(msg, unifier))
-                    .collect(),
-            ),
         }
     }
 }
@@ -82,7 +46,7 @@ impl Message {
 struct TraceEntry {
     sender: Participant,
     receiver: Participant,
-    messages: Vec<Message>,
+    messages: Vec<FullMessage>,
 }
 
 impl std::fmt::Display for TraceEntry {
@@ -101,8 +65,9 @@ impl TraceEntry {
     fn from_messages_trace(entry: &messages::TraceEntry, unifier: &mut Unifier) -> Self {
         let sender = match &entry.sender {
             Some(sender) => match unifier.probe_value(sender.1) {
-                messages::Message::Agent(a) => Participant::Actor(a.unwrap()),
-                messages::Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
+                Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
+                Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
                 u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -110,8 +75,9 @@ impl TraceEntry {
 
         let receiver = match &entry.receiver {
             Some(receiver) => match unifier.probe_value(receiver.1) {
-                messages::Message::Agent(a) => Participant::Actor(a.unwrap()),
-                messages::Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
+                Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
+                Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
                 u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -120,7 +86,7 @@ impl TraceEntry {
         let messages = entry
             .messages
             .iter()
-            .map(|msg| Message::from_message_id(*msg, unifier))
+            .map(|msg| unifier.resolve_full(*msg))
             .collect();
 
         Self {
@@ -199,7 +165,7 @@ impl Verifier {
             .collect_vec()
             .into();
 
-        Execution::new(&protocol, mapper, unifier, sessions).print_sessions();
+        Execution::new(&protocol, &mut mapper, unifier, sessions).print_sessions();
 
         Ok(())
     }
@@ -224,7 +190,7 @@ impl Verifier {
         if self.parallel {
             let mut list_a = vec![Execution::new(
                 &protocol,
-                mapper.clone(),
+                &mut mapper,
                 unifier.clone(),
                 sessions,
             )];
@@ -271,7 +237,7 @@ impl Verifier {
 
                 worklist.push_back(Execution::new(
                     &protocol,
-                    mapper.clone(),
+                    &mut mapper,
                     unifier.clone(),
                     sessions.clone(),
                 ));

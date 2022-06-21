@@ -47,7 +47,11 @@ impl Evaluation {
                 .expect("Could not find path for MACOR");
             macor_time += now.elapsed();
         }
-
+        dbg!(
+            "macor time: {:?}, ofmc_time: {:?}",
+            macor_time / num_samples,
+            ofmc_time / num_samples
+        );
         TimingResult {
             ofmc_time: ofmc_time / num_samples,
             macor_time: macor_time / num_samples,
@@ -62,9 +66,11 @@ impl Evaluation {
             .output()
             .expect("Could not find path for OFMC");
 
-        let ofmc_result = String::from_utf8(ofmc_result.stdout).unwrap().contains("NO_ATTACK_FOUND");
+        let ofmc_result = String::from_utf8(ofmc_result.stdout)
+            .unwrap()
+            .contains("NO_ATTACK_FOUND");
 
-        //("ATTACK_FOUND") 
+        //("ATTACK_FOUND")
 
         let macor_result = Command::new(&self.macor_path)
             .arg("verify")
@@ -73,10 +79,15 @@ impl Evaluation {
             .arg(&self.protocol)
             .output()
             .expect("Could not find path for MACOR");
-        
-        let macor_result = String::from_utf8(macor_result.stdout).unwrap().contains("No attack found!");
 
-        AttackResult{ ofmc_result, macor_result }
+        let macor_result = String::from_utf8(macor_result.stdout)
+            .unwrap()
+            .contains("No attack found!");
+
+        AttackResult {
+            ofmc_result,
+            macor_result,
+        }
     }
 }
 
@@ -155,13 +166,12 @@ mod tests {
     }
 }
 
- #[test]
- fn some_test() {
+#[test]
+fn compare_time() {
     Evaluation {
         ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
-        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/debug/macor".into(),
+        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/release/macor".into(),
         protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
         num_session: 1,
-    }.
-   evaluate_output();
+    }.evaluate_time(10);
 }
