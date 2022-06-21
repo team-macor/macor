@@ -222,7 +222,7 @@ impl Verifier {
                 num_executions += list_b.len() as u32;
 
                 println!(
-                    "solcreme i mit øje 😎👌: {} executions, {:?}/execution",
+                    "Found no attack!\n{} executions, {:?}/execution",
                     num_executions,
                     start.elapsed() / num_executions
                 );
@@ -272,7 +272,7 @@ impl Verifier {
             }
 
             println!(
-                "solcreme i mit øje 😎👌: {} executions, {:?}/execution",
+                "Found no attack!{} executions, {:?}/execution",
                 num_executions,
                 start.elapsed() / num_executions
             )

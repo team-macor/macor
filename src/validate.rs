@@ -17,7 +17,7 @@ struct ActorState {
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic, Clone)]
 pub enum ValidateError {
-    #[error("An agent cannot be sent to the itself")]
+    #[error("An agent cannot send messages to themselves")]
     CannotSendSelf {
         #[source_code]
         src: String,
