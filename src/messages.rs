@@ -960,15 +960,15 @@ impl Intruder {
                 let intruder_id = unifier.intruder();
                 augment_knowledge(&mut knowledge, &mut new_unifier);
 
-                println!(
-                    "Trying to construct {:?} with knowledge [{:?}]\n",
-                    new_unifier.resolve_full(secret.msg),
-                    knowledge
-                        .0
-                        .iter()
-                        .map(|msg| new_unifier.resolve_full(*msg))
-                        .format(", ")
-                );
+                // println!(
+                //     "Trying to construct {:?} with knowledge [{:?}]\n",
+                //     new_unifier.resolve_full(secret.msg),
+                //     knowledge
+                //         .0
+                //         .iter()
+                //         .map(|msg| new_unifier.resolve_full(*msg))
+                //         .format(", ")
+                // );
 
                 for &k in &knowledge.0 {
                     if new_unifier.unify(secret.msg, k).is_ok()
