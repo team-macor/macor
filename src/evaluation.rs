@@ -88,20 +88,20 @@ impl Evaluation {
 #[test]
 fn compare_result() {
     Evaluation {
-        ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
-        macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/debug/macor".into(),
-        protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
+        ofmc_path: "ofmc".into(),
+        macor_path: "macor".into(),
+        protocol: "../example_programs/KeyEx1.AnB".into(),
         num_session: 1,
-    }.
-   evaluate_output();
+    }
+    .evaluate_output();
 }
 
 // #[test]
 // fn compare_time() {
 //     Evaluation {
-//         ofmc_path: "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into(),
-//         macor_path: "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/target/release/macor".into(),
-//         protocol:  "/Users/rebeccaviuff/Documents/UNI_ALL/Uni-MSc/2022-Summer/Rust-Special-Course/macor/example_programs/KeyEx1.AnB".into(),
+//         ofmc_path: "ofmc".into(),
+//         macor_path: "macor".into(),
+//         protocol:  "../example_programs/KeyEx1.AnB".into(),
 //         num_session: 1,
 //     }.evaluate_time(10);
 // }

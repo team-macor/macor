@@ -2,7 +2,7 @@ use criterion::{criterion_group, criterion_main, Criterion};
 use std::{path::PathBuf, process::Command};
 
 pub fn bench_macor(c: &mut Criterion) {
-    let macor_path = "./target/release/macor";
+    let macor_path = "macor";
     let protocol = "../example_programs/KeyEx1";
     let num_session = 1;
     let num_samples = 10;
@@ -26,8 +26,8 @@ pub fn bench_macor(c: &mut Criterion) {
 
 pub fn bench_compare(c: &mut Criterion) {
     //TODO ofmc path not hardcoded
-    let ofmc_path: PathBuf = "/Users/rebeccaviuff/Desktop/rust/ofmc-mac".into();
-    let macor_path = "../target/release/macor";
+    let ofmc_path: PathBuf = "ofmc".into();
+    let macor_path = "macor";
     let protocol = "../example_programs/KeyEx1";
     let num_session = 1;
     let num_samples = 10;
