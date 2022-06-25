@@ -11,7 +11,7 @@ set positional-arguments
     cargo flamegraph --root -p macor -- $1
 
 @hyperfine FILE:
-    hyperfine --warmup 3 -i "$HOME/.cargo-target/release/release/macor verify -n 1 $1" "/Users/camillafaerch/Downloads/ofmc-mac.old --numSess 1 $1"
+    hyperfine --warmup 3 -i "macor verify -n 1 $1" "ofmc --numSess 1 $1"
 
 @hyperfine-all:
     just hyperfine example_programs/KeyEx1.AnB
