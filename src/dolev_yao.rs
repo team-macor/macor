@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use crate::messages::{Knowledge, Message, MessageId, Unifier};
 use crate::protocol::Func;
 
@@ -30,11 +28,10 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                 match func {
                     Func::Inv => return false,
                     Func::User(c) => {
-                        if !knowledge
-                            .0
-                            .iter()
-                            .any(|f| unifier.probe_value(*f) == Message::Constant(c.clone()))
-                        {
+                        if !knowledge.0.iter().any(|f| match unifier.probe_value(*f) {
+                            Message::Constant(x, _) => x == c,
+                            _ => false,
+                        }) {
                             return false;
                         }
                     }
@@ -48,17 +45,6 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                 for a in ts {
                     stack.push(a);
                 }
-            }
-            Message::Agent(_) => {
-                println!(
-                    "I accept {:?}, but who to unify with {:?} 🤔",
-                    unifier.resolve_full(message),
-                    knowledge
-                        .0
-                        .iter()
-                        .map(|&k| unifier.resolve_full(k))
-                        .collect_vec(),
-                )
             }
             _ => return false,
         }

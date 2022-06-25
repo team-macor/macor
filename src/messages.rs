@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::dolev_yao::{augment_knowledge, can_derive};
-use crate::protocol::{self, Direction, Func, Protocol, SessionId};
+use crate::protocol::{self, ActorName, Direction, Func, Protocol, SessionId};
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 use indexmap::IndexMap;
@@ -48,19 +48,29 @@ impl std::fmt::Debug for ConstantId {
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct MessageId(u32);
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Actor {
-    Actor(Option<SmolStr>),
-    Intruder,
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum Kind {
+    Actor,
+    Other,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Message<M> {
-    Variable(Option<SmolStr>),
-    Agent(Actor),
-    Constant(ConstantId),
+    Intruder,
+    Variable(Option<SmolStr>, Kind),
+    Constant(ConstantId, Kind),
     Composition(Func<ConstantId>, Vec<M>),
     Tuple(Vec<M>),
+}
+
+impl<M> Message<M> {
+    pub fn kind(&self) -> Kind {
+        match self {
+            Message::Intruder => Kind::Actor,
+            Message::Variable(_, kind) | Message::Constant(_, kind) => *kind,
+            Message::Composition(_, _) | Message::Tuple(_) => Kind::Other,
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,24 +79,15 @@ pub struct FullMessage(pub Message<FullMessage>);
 impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Variable(arg0) => {
+            Self::Intruder => write!(f, "i"),
+            Self::Variable(arg0, kind) => {
                 if let Some(k) = arg0 {
-                    write!(f, "Var({})", k)
+                    write!(f, "{kind:?}({})", k)
                 } else {
-                    write!(f, "Var")
+                    write!(f, "{kind:?}")
                 }
             }
-            Self::Agent(Actor::Intruder) => {
-                write!(f, "Agent(i)")
-            }
-            Self::Agent(Actor::Actor(arg0)) => {
-                if let Some(k) = arg0 {
-                    write!(f, "Agent({})", k)
-                } else {
-                    write!(f, "Agent")
-                }
-            }
-            Self::Constant(c) => c.fmt(f),
+            Self::Constant(c, kind) => c.fmt(f),
             Self::Composition(fun, args) => {
                 if let Func::User(x) = fun {
                     write!(f, "{:?}({:?})", x, args.iter().format(", "))
@@ -112,22 +113,30 @@ impl UnifyValue for Message<MessageId> {
         use self::Message::*;
 
         Ok(match (l, r) {
-            (Variable(l), Variable(r)) => Variable(l.clone().or_else(|| r.clone())),
-            (Variable(_), Agent(c)) | (Agent(c), Variable(_)) => Agent(c.clone()),
-            (Variable(_), Constant(c)) | (Constant(c), Variable(_)) => Constant(c.clone()),
-            (Variable(_), Composition(func, args)) | (Composition(func, args), Variable(_)) => {
+            (Variable(l, lk), Variable(r, rk)) => {
+                if lk == rk {
+                    Variable(l.clone().or_else(|| r.clone()), *lk)
+                } else {
+                    return Err(());
+                }
+            }
+            (Variable(_, vk), Constant(c, ck)) | (Constant(c, ck), Variable(_, vk)) => {
+                if ck == vk {
+                    Constant(c.clone(), *ck)
+                } else {
+                    return Err(());
+                }
+            }
+            (Variable(_, Kind::Other), Composition(func, args))
+            | (Composition(func, args), Variable(_, Kind::Other)) => {
                 Composition(func.clone(), args.clone())
             }
-            (Variable(_), Tuple(ts)) | (Tuple(ts), Variable(_)) => Tuple(ts.clone()),
-            (Agent(Actor::Intruder), Agent(a)) | (Agent(a), Agent(Actor::Intruder)) => {
-                Agent(Actor::Intruder)
+            (Variable(_, Kind::Other), Tuple(ts)) | (Tuple(ts), Variable(_, Kind::Other)) => {
+                Tuple(ts.clone())
             }
-            (Agent(Actor::Actor(l)), Agent(Actor::Actor(r))) => {
-                Agent(Actor::Actor(l.clone().or_else(|| r.clone())))
-            }
-            (Constant(l), Constant(r)) => {
-                if l == r {
-                    Constant(l.clone())
+            (Constant(l, lk), Constant(r, rk)) => {
+                if l == r && lk == rk {
+                    Constant(l.clone(), *lk)
                 } else {
                     return Err(());
                 }
@@ -167,13 +176,6 @@ impl UnifyKey for MessageId {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct VariableKey {
-    session_id: SessionId,
-    actor: SmolStr,
-    variable: SmolStr,
-}
-
 #[derive(Debug, Clone)]
 pub struct Unifier {
     intruder: MessageId,
@@ -183,7 +185,7 @@ pub struct Unifier {
 impl Default for Unifier {
     fn default() -> Self {
         let mut table = InPlaceUnificationTable::default();
-        let intruder = table.new_key(Message::Agent(Actor::Intruder));
+        let intruder = table.new_key(Message::Intruder);
         Self { intruder, table }
     }
 }
@@ -213,24 +215,12 @@ impl Unifier {
 
         Ok(
             match (self.table.probe_value(l), self.table.probe_value(r)) {
-                (Variable(_), _) | (_, Variable(_)) => {
+                (x @ Variable(_, _), y) | (y, x @ Variable(_, _)) if x.kind() == y.kind() => {
                     self.table.unify_var_var(l, r)?;
                     l
                 }
-                (Agent(l_a), Agent(r_a)) if Actor::Intruder == l_a || Actor::Intruder == r_a => {
-                    if l_a == r_a {
-                        self.table.unify_var_var(l, r)?;
-                        l
-                    } else {
-                        return Err(());
-                    }
-                }
-                (Agent(_), Agent(_)) => {
-                    self.table.unify_var_var(l, r)?;
-                    l
-                }
-                (Constant(x), Constant(y)) => {
-                    if x == y {
+                (Constant(x, xk), Constant(y, yk)) => {
+                    if x == y && xk == yk {
                         l
                     } else {
                         return Err(());
@@ -309,9 +299,9 @@ impl Unifier {
 
     pub fn resolve_full(&mut self, id: MessageId) -> FullMessage {
         match self.table.probe_value(id) {
-            Message::Variable(v) => FullMessage(Message::Variable(v)),
-            Message::Agent(v) => FullMessage(Message::Agent(v)),
-            Message::Constant(c) => FullMessage(Message::Constant(c)),
+            Message::Intruder => FullMessage(Message::Intruder),
+            Message::Variable(v, kind) => FullMessage(Message::Variable(v, kind)),
+            Message::Constant(c, kind) => FullMessage(Message::Constant(c, kind)),
             Message::Composition(func, args) => FullMessage(Message::Composition(
                 func,
                 args.into_iter().map(|arg| self.resolve_full(arg)).collect(),
@@ -329,15 +319,15 @@ fn very_basic_unification() -> Result<(), ()> {
 
     let a = unifier
         .table
-        .new_key(Message::Constant(ConstantId(0, None)));
-    let b = unifier.table.new_key(Message::Variable(None));
+        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
+    let b = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     unifier.unify(a, b)?;
 
     assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
     assert_eq!(
         unifier.table.probe_value(b),
-        Message::Constant(ConstantId(0, None))
+        Message::Constant(ConstantId(0, None), Kind::Other)
     );
 
     Ok(())
@@ -349,13 +339,13 @@ fn less_basic_unification() -> Result<(), ()> {
 
     let x = unifier
         .table
-        .new_key(Message::Constant(ConstantId(0, None)));
+        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
     let y = unifier
         .table
-        .new_key(Message::Constant(ConstantId(1, None)));
+        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
 
-    let y_free = unifier.table.new_key(Message::Variable(None));
-    let x_free = unifier.table.new_key(Message::Variable(None));
+    let y_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    let x_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     let a = unifier.table.new_key(Message::Tuple(vec![x, y_free]));
     let b = unifier.table.new_key(Message::Tuple(vec![x_free, y]));
@@ -366,8 +356,8 @@ fn less_basic_unification() -> Result<(), ()> {
     assert_eq!(
         unifier.resolve_full(a),
         FullMessage(Message::Tuple(vec![
-            FullMessage(Message::Constant(ConstantId(0, None))),
-            FullMessage(Message::Constant(ConstantId(1, None)))
+            FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
+            FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
         ]))
     );
 
@@ -380,13 +370,13 @@ fn unify_simple_composition() -> Result<(), ()> {
 
     let x = unifier
         .table
-        .new_key(Message::Constant(ConstantId(0, None)));
+        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
     let y = unifier
         .table
-        .new_key(Message::Constant(ConstantId(1, None)));
+        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
 
-    let x_free = unifier.table.new_key(Message::Variable(None));
-    let y_free = unifier.table.new_key(Message::Variable(None));
+    let x_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    let y_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     let a = unifier
         .table
@@ -403,8 +393,8 @@ fn unify_simple_composition() -> Result<(), ()> {
         FullMessage(Message::Composition(
             Func::Exp,
             vec![
-                FullMessage(Message::Constant(ConstantId(0, None))),
-                FullMessage(Message::Constant(ConstantId(1, None)))
+                FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
+                FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
             ]
         ))
     );
@@ -418,12 +408,12 @@ fn non_unification() {
 
     let x = unifier
         .table
-        .new_key(Message::Constant(ConstantId(0, None)));
+        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
     let y = unifier
         .table
-        .new_key(Message::Constant(ConstantId(1, None)));
+        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
 
-    let free = unifier.table.new_key(Message::Variable(None));
+    let free = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     let a = unifier.table.new_key(Message::Tuple(vec![y, free]));
     let b = unifier.table.new_key(Message::Tuple(vec![x, y]));
@@ -437,12 +427,12 @@ fn branching_unification() -> Result<(), ()> {
 
     let x = unifier
         .table
-        .new_key(Message::Constant(ConstantId(1, None)));
+        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
     let y = unifier
         .table
-        .new_key(Message::Constant(ConstantId(2, None)));
+        .new_key(Message::Constant(ConstantId(2, None), Kind::Other));
 
-    let a = unifier.table.new_key(Message::Variable(None));
+    let a = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     let mut world_1 = unifier.clone();
     let mut world_2 = unifier.clone();
@@ -452,11 +442,11 @@ fn branching_unification() -> Result<(), ()> {
 
     assert_eq!(
         world_1.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(1, None)))
+        FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
     );
     assert_eq!(
         world_2.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(2, None)))
+        FullMessage(Message::Constant(ConstantId(2, None), Kind::Other))
     );
 
     Ok(())
@@ -468,12 +458,12 @@ fn rollback_unification() -> Result<(), ()> {
 
     let x = unifier
         .table
-        .new_key(Message::Constant(ConstantId(1, None)));
+        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
     let y = unifier
         .table
-        .new_key(Message::Constant(ConstantId(2, None)));
+        .new_key(Message::Constant(ConstantId(2, None), Kind::Other));
 
-    let a = unifier.table.new_key(Message::Variable(None));
+    let a = unifier.table.new_key(Message::Variable(None, Kind::Other));
 
     let snap = unifier.table.snapshot();
 
@@ -481,7 +471,7 @@ fn rollback_unification() -> Result<(), ()> {
 
     assert_eq!(
         unifier.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(1, None)))
+        FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
     );
 
     unifier.table.rollback_to(snap);
@@ -490,7 +480,7 @@ fn rollback_unification() -> Result<(), ()> {
 
     assert_eq!(
         unifier.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(2, None)))
+        FullMessage(Message::Constant(ConstantId(2, None), Kind::Other))
     );
 
     Ok(())
@@ -522,6 +512,18 @@ fn rollback_unification() -> Result<(), ()> {
 // ->B: NA_b (2)
 // B->: NA_b (3)
 
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum ForWho {
+    Intruder(SessionId),
+    Actor(SessionId, protocol::ActorName),
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct VariableKey {
+    for_who: ForWho,
+    variable: SmolStr,
+}
+
 #[derive(Debug)]
 pub struct Converter<'a> {
     pub unifier: &'a mut Unifier,
@@ -531,7 +533,8 @@ pub struct Converter<'a> {
 #[derive(Debug, Clone)]
 pub struct Mappings {
     next_constant: u32,
-    actor_table: IndexMap<(Option<SessionId>, SmallStr), MessageId>,
+    global_actor_table: IndexMap<ActorName, MessageId>,
+    actor_table: IndexMap<(ForWho, SmallStr), MessageId>,
     func_table: IndexMap<Func, MessageId>,
     global_constant_table: IndexMap<SmallStr, MessageId>,
     constant_table: IndexMap<VariableKey, MessageId>,
@@ -542,6 +545,7 @@ impl Default for Mappings {
     fn default() -> Self {
         Self {
             next_constant: 1,
+            global_actor_table: Default::default(),
             actor_table: Default::default(),
             func_table: Default::default(),
             global_constant_table: Default::default(),
@@ -556,36 +560,62 @@ impl<'a> Converter<'a> {
         Self { unifier, mappings }
     }
 
-    pub fn get_actor(
-        &mut self,
-        session_id: Option<SessionId>,
-        agent: &protocol::ActorName,
-    ) -> MessageId {
-        // TODO: ???
-        // let mid = self.register_global_constant(agent);
-        // if let Message::Constant(c) = self.unifier.table.probe_value(mid) {
-        //     c
-        // } else {
-        //     unreachable!()
-        // }
-        // TODO: ???
-        *self
-            .mappings
-            .actor_table
-            .entry((session_id, agent.0.clone().into()))
-            .or_insert_with(|| match session_id {
-                _ if agent.0.is_constant() => {
-                    let cid = ConstantId(self.mappings.next_constant, Some(agent.0.clone().into()));
+    pub fn get_actor(&mut self, ctx: &ForWho, agent_to_get: &protocol::ActorName) -> MessageId {
+        if agent_to_get.0.is_constant() {
+            return *self
+                .mappings
+                .global_actor_table
+                .entry(agent_to_get.clone())
+                .or_insert_with(|| {
+                    let cid = ConstantId(
+                        self.mappings.next_constant,
+                        Some(agent_to_get.0.clone().into()),
+                    );
                     self.mappings.next_constant += 1;
-                    self.unifier.table.new_key(Message::Constant(cid))
-                }
-                Some(session_id) => self.unifier.table.new_key(Message::Agent(Actor::Actor(Some(
-                    format!("{}_{}", agent.0, session_id.0).into(),
-                )))),
-                _ => self.unifier.table.new_key(Message::Agent(Actor::Actor(Some(
-                    format!("{}", agent.0).into(),
-                )))),
-            })
+                    self.unifier
+                        .table
+                        .new_key(Message::Constant(cid, Kind::Actor))
+                });
+        }
+
+        const AGENTS_FIX_TO_THEMSELVES: bool = false;
+
+        match ctx {
+            ForWho::Intruder(session_id) => self.get_actor(
+                &ForWho::Actor(*session_id, agent_to_get.clone()),
+                agent_to_get,
+            ),
+            ForWho::Actor(session_id, agent) => *self
+                .mappings
+                .actor_table
+                .entry((ctx.clone(), agent_to_get.0.clone().into()))
+                .or_insert_with(|| {
+                    if agent_to_get.0.is_constant() {
+                        let cid = ConstantId(
+                            self.mappings.next_constant,
+                            Some(agent_to_get.0.clone().into()),
+                        );
+                        self.mappings.next_constant += 1;
+                        self.unifier
+                            .table
+                            .new_key(Message::Constant(cid, Kind::Actor))
+                    } else if agent_to_get == agent && AGENTS_FIX_TO_THEMSELVES {
+                        let cid = ConstantId(
+                            self.mappings.next_constant,
+                            Some(format!("{:?}_{:?}", agent_to_get.0.clone(), session_id.0).into()),
+                        );
+                        self.mappings.next_constant += 1;
+                        self.unifier
+                            .table
+                            .new_key(Message::Constant(cid, Kind::Actor))
+                    } else {
+                        self.unifier.table.new_key(Message::Variable(
+                            Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0).into()),
+                            Kind::Actor,
+                        ))
+                    }
+                }),
+        }
     }
     pub fn get_function_constant(&mut self, func: Func) -> MessageId {
         *self
@@ -598,14 +628,16 @@ impl<'a> Converter<'a> {
                     Some(format!("{:?}", func).into()),
                 );
                 self.mappings.next_constant += 1;
-                self.unifier.table.new_key(Message::Constant(cid))
+                self.unifier
+                    .table
+                    .new_key(Message::Constant(cid, Kind::Other))
             })
     }
 
     pub fn register_global_constant(&mut self, constant_name: &str) -> ConstantId {
         let msg = self.register_global_constant_msg(constant_name);
         match self.unifier.table.probe_value(msg) {
-            Message::Constant(c) => c,
+            Message::Constant(c, _) => c,
             _ => unreachable!(),
         }
     }
@@ -617,97 +649,93 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| {
                 let cid = ConstantId(self.mappings.next_constant, Some(constant_name.into()));
                 self.mappings.next_constant += 1;
-                self.unifier.table.new_key(Message::Constant(cid))
+                self.unifier
+                    .table
+                    .new_key(Message::Constant(cid, Kind::Other))
             })
     }
     pub fn register_constant(
         &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
+        for_who: &ForWho,
         constant_name: &Ident<SmallStr>,
     ) -> MessageId {
         *self
             .mappings
             .constant_table
             .entry(VariableKey {
-                session_id,
-                actor: agent.into(),
+                for_who: for_who.clone(),
                 variable: constant_name.into(),
             })
-            .or_insert_with(|| {
-                let cid = ConstantId(
-                    self.mappings.next_constant,
-                    Some(format!("{}@{}:{}", agent, session_id.0, constant_name).into()),
-                );
-                self.mappings.next_constant += 1;
-                self.unifier.table.new_key(Message::Constant(cid))
+            .or_insert_with(|| match for_who {
+                ForWho::Intruder(_) => todo!(),
+                ForWho::Actor(session_id, agent) => {
+                    let cid = ConstantId(
+                        self.mappings.next_constant,
+                        Some(format!("{}@{}:{}", &agent.0, session_id.0, constant_name).into()),
+                    );
+                    self.mappings.next_constant += 1;
+                    self.unifier
+                        .table
+                        .new_key(Message::Constant(cid, Kind::Other))
+                }
             })
     }
     pub fn register_variable(
         &mut self,
-        agent: &Ident<SmallStr>,
-        session_id: SessionId,
+        for_who: &ForWho,
         variable_name: &Ident<SmallStr>,
     ) -> MessageId {
         *self
             .mappings
             .variable_table
             .entry(VariableKey {
-                session_id,
-                actor: agent.into(),
+                for_who: for_who.clone(),
                 variable: variable_name.into(),
             })
-            .or_insert_with(|| {
-                self.unifier.table.new_key(Message::Variable(Some(
-                    format!("{}@{}:{}", agent, session_id.0, variable_name).into(),
-                )))
+            .or_insert_with(|| match for_who {
+                ForWho::Intruder(_) => todo!(),
+                ForWho::Actor(session_id, agent) => self.unifier.table.new_key(Message::Variable(
+                    Some(format!("{}@{}:{}", agent.0, session_id.0, variable_name).into()),
+                    Kind::Other,
+                )),
             })
     }
 
     fn initiate_typed_variable(
         &mut self,
-        agent: Option<&Ident<SmallStr>>,
-        session_id: SessionId,
-        initators: &IndexMap<protocol::Variable, protocol::ActorName>,
+        for_who: &ForWho,
+        initiators: &IndexMap<protocol::Variable, protocol::ActorName>,
         var: &protocol::Variable,
     ) -> MessageId {
         match var {
-            protocol::Variable::Actor(a) => {
-                // TODO: Is it fine to register agents like this??
-                // self.register_variable(agent, session_id, a.0.as_str())
-                // TODO: For now, just fix them so that A will always be A, and B always B
-                self.get_actor(Some(session_id), a)
-            }
+            protocol::Variable::Actor(a) => self.get_actor(for_who, a),
             protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
-                match (initators.get(var), agent) {
-                    (Some(initator), Some(agent)) if &initator.0 == agent => {
-                        self.register_constant(agent, session_id, &n.convert())
+                match (initiators.get(var), for_who) {
+                    (Some(initiator), ForWho::Actor(_, agent)) if initiator == agent => {
+                        self.register_constant(for_who, &n.convert())
                     }
-                    (Some(_), Some(agent)) => {
-                        self.register_variable(agent, session_id, &n.convert())
-                    }
-                    (Some(initator), None) => {
-                        self.register_constant(&initator.0, session_id, &n.convert())
-                    }
-                    _ => todo!("Variable {:?} ({:?})", var, initators),
-                    // _ => self.register_variable(agent, session_id, &n.convert()),
+                    (Some(_), ForWho::Actor(_, _)) => self.register_variable(for_who, &n.convert()),
+                    (Some(initiator), ForWho::Intruder(session_id)) => self.register_constant(
+                        &ForWho::Actor(*session_id, initiator.clone()),
+                        &n.convert(),
+                    ),
+                    _ => todo!("Variable {:?} ({:?})", var, initiators),
                 }
             }
         }
     }
     pub fn register_typed_message(
         &mut self,
-        agent: Option<&Ident<SmallStr>>,
-        session_id: SessionId,
+        for_who: &ForWho,
         initiations: &IndexMap<protocol::Variable, protocol::ActorName>,
         msg: protocol::Message,
     ) -> MessageId {
         match msg {
             protocol::Message::Variable(var) => {
-                self.initiate_typed_variable(agent, session_id, initiations, &var)
+                self.initiate_typed_variable(for_who, initiations, &var)
             }
             protocol::Message::Constant(c) => match c {
-                protocol::Constant::Actor(a) => self.get_actor(Some(session_id), &a),
+                protocol::Constant::Actor(a) => self.get_actor(for_who, &a),
                 protocol::Constant::Function(f) => self.get_function_constant(f),
                 protocol::Constant::Intruder => self.unifier.intruder(),
                 protocol::Constant::Nonce(_) => todo!(),
@@ -722,7 +750,7 @@ impl<'a> Converter<'a> {
                         Func::User(u) => Func::User(self.register_global_constant(u.as_str())),
                     },
                     args.into_iter()
-                        .map(|arg| self.register_typed_message(agent, session_id, initiations, arg))
+                        .map(|arg| self.register_typed_message(for_who, initiations, arg))
                         .collect(),
                 );
                 self.unifier.table.new_key(msg)
@@ -730,7 +758,7 @@ impl<'a> Converter<'a> {
             protocol::Message::Tuple(ts) => {
                 let msg = Message::Tuple(
                     ts.into_iter()
-                        .map(|t| self.register_typed_message(agent, session_id, initiations, t))
+                        .map(|t| self.register_typed_message(for_who, initiations, t))
                         .collect(),
                 );
                 self.unifier.table.new_key(msg)
@@ -819,13 +847,14 @@ impl Session {
             .actors
             .iter()
             .map(|actor| {
+                let for_who = ForWho::Actor(session_id, actor.name.clone());
+
                 let mut initial_knowledge: Vec<_> = actor
                     .initial_knowledge
                     .iter()
                     .map(|msg| {
                         converter.register_typed_message(
-                            Some(&actor.name.0),
-                            session_id,
+                            &for_who,
                             &protocol.initiations,
                             msg.clone(),
                         )
@@ -841,12 +870,7 @@ impl Session {
                 });
 
                 initial_knowledge.extend(initiates.map(|var| {
-                    converter.initiate_typed_variable(
-                        Some(&actor.name.0),
-                        session_id,
-                        &protocol.initiations,
-                        &var,
-                    )
+                    converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
                 }));
 
                 initial_knowledge.sort_unstable_by_key(|msg| converter.unifier.resolve_full(*msg));
@@ -854,23 +878,22 @@ impl Session {
 
                 SessionActor {
                     name: actor.name.0.clone(),
-                    actor_id: converter.get_actor(Some(session_id), &actor.name),
+                    actor_id: converter.get_actor(&for_who, &actor.name),
                     initial_knowledge: Knowledge(initial_knowledge),
                     strand: actor
                         .messages
                         .iter()
                         .map(|pattern| Transaction {
                             ast_node: pattern.clone(),
-                            sender: converter.get_actor(Some(session_id), &pattern.from),
-                            receiver: converter.get_actor(Some(session_id), &pattern.to),
+                            sender: converter.get_actor(&for_who, &pattern.from),
+                            receiver: converter.get_actor(&for_who, &pattern.to),
                             direction: pattern.direction,
                             messages: pattern
                                 .packet
                                 .iter()
                                 .map(|msg| {
                                     converter.register_typed_message(
-                                        Some(&actor.name.0),
-                                        session_id,
+                                        &for_who,
                                         &protocol.initiations,
                                         msg.clone(),
                                     )
@@ -891,11 +914,10 @@ impl Session {
                     .map(|msg| Secret {
                         between_actors: agents
                             .iter()
-                            .map(|agent| converter.get_actor(Some(session_id), agent))
+                            .map(|agent| converter.get_actor(&ForWho::Intruder(session_id), agent))
                             .collect(),
                         msg: converter.register_typed_message(
-                            None,
-                            session_id,
+                            &ForWho::Intruder(session_id),
                             &protocol.initiations,
                             msg.clone(),
                         ),

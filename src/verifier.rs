@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::{
     execution::{self, Execution},
-    messages::{self, Converter, FullMessage, Message, Unifier},
+    messages::{self, Converter, FullMessage, Kind, Message, Unifier},
     protocol::{Func, Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
@@ -26,12 +26,9 @@ impl std::fmt::Display for Participant {
 impl std::fmt::Display for FullMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            Message::Variable(inner) => write!(f, "{}", inner.as_ref().unwrap()),
-            Message::Agent(messages::Actor::Intruder) => write!(f, "i"),
-            Message::Agent(messages::Actor::Actor(a)) => write!(f, "{}", a.as_ref().unwrap()),
-            Message::Constant(inner) => {
-                write!(f, "{}", inner.1.clone().unwrap())
-            }
+            Message::Intruder => write!(f, "i"),
+            Message::Variable(inner, _) => write!(f, "{}", inner.as_ref().unwrap()),
+            Message::Constant(inner, _) => write!(f, "{}", inner.1.clone().unwrap()),
             Message::Composition(func, args) => match func {
                 Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
@@ -71,9 +68,9 @@ impl TraceEntry {
     fn from_messages_trace(entry: &execution::TraceEntry, unifier: &mut Unifier) -> Self {
         let sender = match &entry.sender {
             Some(sender) => match unifier.probe_value(sender.1) {
-                Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
-                Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
-                Message::Constant(s) => Participant::Actor(s.1.clone().unwrap().to_string()),
+                Message::Intruder => Participant::Intruder,
+                Message::Variable(s, Kind::Actor) => Participant::Actor(s.unwrap().to_string()),
+                Message::Constant(s, Kind::Actor) => Participant::Actor(s.1.unwrap().to_string()),
                 u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -81,9 +78,9 @@ impl TraceEntry {
 
         let receiver = match &entry.receiver {
             Some(receiver) => match unifier.probe_value(receiver.1) {
-                Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
-                Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
-                Message::Constant(s) => Participant::Actor(s.1.clone().unwrap().to_string()),
+                Message::Intruder => Participant::Intruder,
+                Message::Variable(s, Kind::Actor) => Participant::Actor(s.unwrap().to_string()),
+                Message::Constant(s, Kind::Actor) => Participant::Actor(s.1.unwrap().to_string()),
                 u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
