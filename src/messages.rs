@@ -1041,7 +1041,11 @@ impl Execution {
 
         let mut converter = Converter::new(&mut unifier, mappings);
         let mut intruder = Intruder::default();
+
         for session in sessions.iter() {
+            for actor in &session.actors {
+                intruder.knowledge.0.push(actor.actor_id);
+            }
             for actor in &protocol.actors {
                 if actor.name.0.is_constant() {
                     continue;
