@@ -203,53 +203,16 @@ impl Execution {
                                         .iter_mut()
                                         .position(|a| a.actor_id == transaction.receiver)
                                     {
-                                        // shouldn't, we also have an execution where receiver doesn't get the message in their inbox?
-                                        let mut next_executions = Vec::new();
+                                        new.states[session_i].actors[actor_i].current_execution +=
+                                            1;
+
                                         if let Some(intruder) = &mut new.intruder {
                                             intruder
                                                 .knowledge
                                                 .0
                                                 .extend(transaction.messages.clone());
-                                        }
 
-                                        new.states[session_i].actors[actor_i].current_execution +=
-                                            1;
-
-                                        // TODO: Don't clone if not nessesary
-                                        let mut intruder_intercept = new.clone();
-
-                                        new.trace.push(
-                                            TraceEntry {
-                                                session: session.session_id,
-                                                sender: Some((
-                                                    actor.name.as_str().into(),
-                                                    actor.actor_id,
-                                                )),
-                                                receiver:
-                                                    Some(
-                                                        (
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .name
-                                                                .as_str()
-                                                                .into(),
-                                                            self.sessions[session_i].actors
-                                                                [receiver_i]
-                                                                .actor_id,
-                                                        ),
-                                                    ),
-                                                messages: transaction.messages.clone(),
-                                            }
-                                            .into(),
-                                        );
-
-                                        let r = &mut new.states[session_i].actors[receiver_i];
-                                        r.inbox.push_back(transaction.messages.clone());
-
-                                        next_executions.push(new);
-
-                                        if self.intruder.is_some() {
-                                            intruder_intercept.trace.push(
+                                            new.trace.push(
                                                 TraceEntry {
                                                     session: session.session_id,
                                                     sender: Some((
@@ -261,17 +224,44 @@ impl Execution {
                                                 }
                                                 .into(),
                                             );
+                                        } else {
+                                            new.trace.push(
+                                                TraceEntry {
+                                                    session: session.session_id,
+                                                    sender: Some((
+                                                        actor.name.as_str().into(),
+                                                        actor.actor_id,
+                                                    )),
+                                                    receiver: Some(
+                                                        (
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .name
+                                                                .as_str()
+                                                                .into(),
+                                                            self.sessions[session_i].actors
+                                                                [receiver_i]
+                                                                .actor_id,
+                                                        ),
+                                                    ),
+                                                    messages: transaction.messages.clone(),
+                                                }
+                                                .into(),
+                                            );
 
-                                            next_executions.push(intruder_intercept);
+                                            let r = &mut new.states[session_i].actors[receiver_i];
+                                            r.inbox.push_back(transaction.messages.clone());
                                         }
 
-                                        next_executions
+                                        vec![new]
                                     } else {
                                         unreachable!("cannot send message to unknown actor")
                                     }
                                 }
                                 Direction::Ingoing => {
                                     if !state.inbox.is_empty() {
+                                        assert!(self.intruder.is_none());
+
                                         let mut new = self.clone();
 
                                         let incoming = new.states[session_i].actors[actor_i]
@@ -282,20 +272,8 @@ impl Execution {
                                         for (&a, &b) in
                                             transaction.messages.iter().zip_eq(incoming.iter())
                                         {
-                                            // if new.unifier.resolve_full(a)
-                                            //     != new.unifier.resolve_full(b)
-                                            // {
-                                            //     println!(
-                                            //         "Time to unify {:?} with {:?}",
-                                            //         new.unifier.resolve_full(a),
-                                            //         new.unifier.resolve_full(b)
-                                            //     );
-                                            // }
-                                            match new.unifier.unify(a, b) {
-                                                Ok(_) => {}
-                                                Err(_) => {
-                                                    return vec![];
-                                                }
+                                            if new.unifier.unify(a, b).is_err() {
+                                                return vec![];
                                             }
                                         }
 
@@ -324,19 +302,14 @@ impl Execution {
                                                 TraceEntry {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
-                                                    receiver:
-                                                        Some(
-                                                            (
-                                                                new.sessions[session_i].actors
-                                                                    [actor_i]
-                                                                    .name
-                                                                    .clone()
-                                                                    .into(),
-                                                                new.states[session_i].actors
-                                                                    [actor_i]
-                                                                    .actor_id,
-                                                            ),
-                                                        ),
+                                                    receiver: Some((
+                                                        new.sessions[session_i].actors[actor_i]
+                                                            .name
+                                                            .clone()
+                                                            .into(),
+                                                        new.states[session_i].actors[actor_i]
+                                                            .actor_id,
+                                                    )),
                                                     messages: transaction.messages.clone(),
                                                 }
                                                 .into(),
