@@ -33,7 +33,7 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                         if !knowledge
                             .0
                             .iter()
-                            .any(|f| unifier.probe_value(*f) == Message::Constant(c))
+                            .any(|f| unifier.probe_value(*f) == Message::Constant(c.clone()))
                         {
                             return false;
                         }

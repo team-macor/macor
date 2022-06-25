@@ -30,14 +30,19 @@ impl std::fmt::Display for FullMessage {
             Message::Agent(messages::Actor::Intruder) => write!(f, "i"),
             Message::Agent(messages::Actor::Actor(a)) => write!(f, "{}", a.as_ref().unwrap()),
             Message::Constant(inner) => {
-                write!(f, "{}", inner.1.unwrap())
+                write!(f, "{}", inner.1.clone().unwrap())
             }
             Message::Composition(func, args) => match func {
                 Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
-                Func::User(name) => write!(f, "{}({})", name.1.unwrap(), args.iter().format(", ")),
+                Func::User(name) => write!(
+                    f,
+                    "{}({})",
+                    name.1.clone().unwrap(),
+                    args.iter().format(", ")
+                ),
             },
             Message::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
         }
@@ -68,7 +73,7 @@ impl TraceEntry {
             Some(sender) => match unifier.probe_value(sender.1) {
                 Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
                 Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
-                Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Constant(s) => Participant::Actor(s.1.clone().unwrap().to_string()),
                 u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -78,7 +83,7 @@ impl TraceEntry {
             Some(receiver) => match unifier.probe_value(receiver.1) {
                 Message::Agent(messages::Actor::Intruder) => Participant::Intruder,
                 Message::Agent(messages::Actor::Actor(a)) => Participant::Actor(a.unwrap().into()),
-                Message::Constant(s) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Constant(s) => Participant::Actor(s.1.clone().unwrap().to_string()),
                 u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,

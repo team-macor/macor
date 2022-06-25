@@ -9,8 +9,8 @@ use itertools::Itertools;
 use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 
-#[derive(Clone, Copy, Eq)]
-pub struct ConstantId(u32, pub Option<&'static str>);
+#[derive(Clone, Eq)]
+pub struct ConstantId(u32, pub Option<SmolStr>);
 
 impl std::hash::Hash for ConstantId {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -38,7 +38,7 @@ impl PartialEq for ConstantId {
 
 impl std::fmt::Debug for ConstantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = self.1 {
+        if let Some(name) = &self.1 {
             write!(f, "!{}[{}]", name, self.0)
         } else {
             write!(f, "![{}]", self.0)
@@ -114,7 +114,7 @@ impl UnifyValue for Message<MessageId> {
         Ok(match (l, r) {
             (Variable(l), Variable(r)) => Variable(l.clone().or_else(|| r.clone())),
             (Variable(_), Agent(c)) | (Agent(c), Variable(_)) => Agent(c.clone()),
-            (Variable(_), Constant(c)) | (Constant(c), Variable(_)) => Constant(*c),
+            (Variable(_), Constant(c)) | (Constant(c), Variable(_)) => Constant(c.clone()),
             (Variable(_), Composition(func, args)) | (Composition(func, args), Variable(_)) => {
                 Composition(func.clone(), args.clone())
             }
@@ -127,7 +127,7 @@ impl UnifyValue for Message<MessageId> {
             }
             (Constant(l), Constant(r)) => {
                 if l == r {
-                    Constant(*l)
+                    Constant(l.clone())
                 } else {
                     return Err(());
                 }
@@ -575,10 +575,7 @@ impl<'a> Converter<'a> {
             .entry((session_id, agent.0.clone().into()))
             .or_insert_with(|| match session_id {
                 _ if agent.0.is_constant() => {
-                    let cid = ConstantId(
-                        self.mappings.next_constant,
-                        Some(leak_str(agent.0.as_str())),
-                    );
+                    let cid = ConstantId(self.mappings.next_constant, Some(agent.0.clone().into()));
                     self.mappings.next_constant += 1;
                     self.unifier.table.new_key(Message::Constant(cid))
                 }
@@ -598,7 +595,7 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| {
                 let cid = ConstantId(
                     self.mappings.next_constant,
-                    Some(leak_str(&format!("{:?}", func))),
+                    Some(format!("{:?}", func).into()),
                 );
                 self.mappings.next_constant += 1;
                 self.unifier.table.new_key(Message::Constant(cid))
@@ -618,7 +615,7 @@ impl<'a> Converter<'a> {
             .global_constant_table
             .entry(constant_name.into())
             .or_insert_with(|| {
-                let cid = ConstantId(self.mappings.next_constant, Some(leak_str(constant_name)));
+                let cid = ConstantId(self.mappings.next_constant, Some(constant_name.into()));
                 self.mappings.next_constant += 1;
                 self.unifier.table.new_key(Message::Constant(cid))
             })
@@ -640,10 +637,7 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| {
                 let cid = ConstantId(
                     self.mappings.next_constant,
-                    Some(leak_str(&format!(
-                        "{}@{}:{}",
-                        agent, session_id.0, constant_name
-                    ))),
+                    Some(format!("{}@{}:{}", agent, session_id.0, constant_name).into()),
                 );
                 self.mappings.next_constant += 1;
                 self.unifier.table.new_key(Message::Constant(cid))
@@ -776,10 +770,6 @@ impl<'a> Converter<'a> {
             }
         }
     }
-}
-
-fn leak_str(s: &str) -> &'static str {
-    Box::leak(s.to_string().into_boxed_str())
 }
 
 #[derive(Debug, Clone, Default)]
