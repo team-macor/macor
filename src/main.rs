@@ -25,6 +25,10 @@ enum Args {
         #[clap(short, long, value_parser)]
         num_sessions: u32,
 
+        /// Number of iterations
+        #[clap(long, value_parser, default_value_t = 1)]
+        iter: u32,
+
         /// The path to the protocol src
         #[clap(value_parser)]
         file: PathBuf,
@@ -80,9 +84,13 @@ fn main() -> miette::Result<()> {
             let src = std::fs::read_to_string(file).unwrap();
             Verifier::with_num_sessions(num_sessions).interactive(&src)?;
         }
-        Args::Verify { num_sessions, file } => {
+        Args::Verify {
+            num_sessions,
+            file,
+            iter,
+        } => {
             let src = std::fs::read_to_string(file).unwrap();
-            match Verifier::with_num_sessions(num_sessions).verify(&src)? {
+            match Verifier::with_num_sessions(num_sessions).verify(iter, &src)? {
                 Verification::Attack(trace) => {
                     println!("Found attack:");
                     println!("{}", trace);

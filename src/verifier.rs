@@ -223,7 +223,7 @@ impl Verifier {
         Ok(())
     }
 
-    pub fn verify(self, protocol: &str) -> miette::Result<Verification> {
+    pub fn verify(self, num_iterations: u32, protocol: &str) -> miette::Result<Verification> {
         let parsed = crate::parse_document(protocol)?;
 
         let protocol =
@@ -283,9 +283,7 @@ impl Verifier {
                 std::mem::swap(&mut list_a, &mut list_b);
             }
         } else {
-            let num_samples = 1;
-
-            for _ in 0..num_samples {
+            'iter: for iter in 0..num_iterations {
                 let mut worklist = VecDeque::new();
 
                 worklist.push_back(Execution::new(
@@ -305,17 +303,21 @@ impl Verifier {
                     } else {
                         for mut next in nexts {
                             if next.has_compromised_secrets() {
-                                return Ok(Verification::Attack(Trace(
-                                    next.trace
-                                        .iter()
-                                        .map(|entry| {
-                                            TraceEntry::from_messages_trace(
-                                                entry,
-                                                &mut next.unifier,
-                                            )
-                                        })
-                                        .collect(),
-                                )));
+                                if iter + 1 == num_iterations {
+                                    return Ok(Verification::Attack(Trace(
+                                        next.trace
+                                            .iter()
+                                            .map(|entry| {
+                                                TraceEntry::from_messages_trace(
+                                                    entry,
+                                                    &mut next.unifier,
+                                                )
+                                            })
+                                            .collect(),
+                                    )));
+                                } else {
+                                    continue 'iter;
+                                }
                             }
 
                             worklist.push_back(next);

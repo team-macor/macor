@@ -21,7 +21,7 @@ mod tests {
             fn $name() {
                 let protocol = include_str!($file);
                 let result = crate::verifier::Verifier::with_num_sessions(1)
-                    .verify(&protocol)
+                    .verify(1, &protocol)
                     .unwrap();
 
                 match result {
