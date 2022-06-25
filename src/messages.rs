@@ -196,6 +196,19 @@ impl Unifier {
     /// messages if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
     pub fn unify(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
+        let snap = self.table.snapshot();
+        match self.unify_inner(l, r) {
+            Ok(v) => {
+                self.table.commit(snap);
+                Ok(v)
+            }
+            Err(()) => {
+                self.table.rollback_to(snap);
+                Err(())
+            }
+        }
+    }
+    fn unify_inner(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
         use self::Message::*;
 
         Ok(
@@ -203,6 +216,14 @@ impl Unifier {
                 (Variable(_), _) | (_, Variable(_)) => {
                     self.table.unify_var_var(l, r)?;
                     l
+                }
+                (Agent(l_a), Agent(r_a)) if Actor::Intruder == l_a || Actor::Intruder == r_a => {
+                    if l_a == r_a {
+                        self.table.unify_var_var(l, r)?;
+                        l
+                    } else {
+                        return Err(());
+                    }
                 }
                 (Agent(_), Agent(_)) => {
                     self.table.unify_var_var(l, r)?;
@@ -225,7 +246,7 @@ impl Unifier {
                         return Err(());
                     } else {
                         for (l_arg, r_arg) in l_args.into_iter().zip_eq(r_args) {
-                            self.unify(l_arg, r_arg)?;
+                            self.unify_inner(l_arg, r_arg)?;
                         }
                         self.table.unify_var_var(l, r)?;
                         l
@@ -236,7 +257,7 @@ impl Unifier {
                         return Err(());
                     } else {
                         for (l_arg, r_arg) in ls.into_iter().zip_eq(rs) {
-                            self.unify(l_arg, r_arg)?;
+                            self.unify_inner(l_arg, r_arg)?;
                         }
                         self.table.unify_var_var(l, r)?;
                         l
@@ -435,6 +456,40 @@ fn branching_unification() -> Result<(), ()> {
     );
     assert_eq!(
         world_2.resolve_full(a),
+        FullMessage(Message::Constant(ConstantId(2, None)))
+    );
+
+    Ok(())
+}
+
+#[test]
+fn rollback_unification() -> Result<(), ()> {
+    let mut unifier = Unifier::default();
+
+    let x = unifier
+        .table
+        .new_key(Message::Constant(ConstantId(1, None)));
+    let y = unifier
+        .table
+        .new_key(Message::Constant(ConstantId(2, None)));
+
+    let a = unifier.table.new_key(Message::Variable(None));
+
+    let snap = unifier.table.snapshot();
+
+    unifier.unify(a, x)?;
+
+    assert_eq!(
+        unifier.resolve_full(a),
+        FullMessage(Message::Constant(ConstantId(1, None)))
+    );
+
+    unifier.table.rollback_to(snap);
+
+    unifier.unify(a, y)?;
+
+    assert_eq!(
+        unifier.resolve_full(a),
         FullMessage(Message::Constant(ConstantId(2, None)))
     );
 
@@ -916,9 +971,12 @@ impl Knowledge {
         //         .map(|&msg| unifier.resolve_full(msg))
         //         .format(", ")
         // );
-        if self.0.iter().any(|&k| unifier.table.unioned(k, msg)) {
-            return true;
-        }
+        // if self.0.iter().any(|&k| unifier.table.unioned(k, msg)) {
+        //     return true;
+        // }
+        // if self.0.iter().any(|&k| unifier.unify(k, msg).is_ok()) {
+        //     return true;
+        // }
 
         if can_derive(self, msg, unifier) {
             return true;

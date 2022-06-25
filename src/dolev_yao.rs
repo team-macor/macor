@@ -8,11 +8,17 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
 
     while let Some(message) = stack.pop() {
         // Axiom
-        // TODO: Fix this unification
         if knowledge
             .0
             .iter()
-            .any(|msg| unifier.resolve_full(*msg) == unifier.resolve_full(message))
+            .any(|msg| unifier.are_unified(*msg, message))
+        {
+            continue;
+        }
+        if knowledge
+            .0
+            .iter()
+            .any(|msg| unifier.unify(*msg, message).is_ok())
         {
             continue;
         }
