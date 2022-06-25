@@ -3,7 +3,8 @@ use std::collections::VecDeque;
 use itertools::Itertools;
 
 use crate::{
-    messages::{self, Converter, Execution, FullMessage, Message, Unifier},
+    execution::{self, Execution},
+    messages::{self, Converter, FullMessage, Message, Unifier},
     protocol::{Func, Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
@@ -62,7 +63,7 @@ impl std::fmt::Display for TraceEntry {
 }
 
 impl TraceEntry {
-    fn from_messages_trace(entry: &messages::TraceEntry, unifier: &mut Unifier) -> Self {
+    fn from_messages_trace(entry: &execution::TraceEntry, unifier: &mut Unifier) -> Self {
         let sender = match &entry.sender {
             Some(sender) => match unifier.probe_value(sender.1) {
                 Message::Agent(messages::Actor::Intruder) => Participant::Intruder,

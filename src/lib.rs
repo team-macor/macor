@@ -3,6 +3,7 @@
 pub mod dolev_yao;
 pub mod dolev_yao_old;
 pub mod evaluation;
+pub mod execution;
 pub mod messages;
 pub mod protocol;
 pub mod typing;
