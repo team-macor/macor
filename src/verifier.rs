@@ -103,7 +103,7 @@ pub struct Trace(Vec<TraceEntry>);
 impl std::fmt::Display for Trace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         for entry in &self.0 {
-            writeln!(f, "{}", entry)?;
+            writeln!(f, "  {}", entry)?;
         }
         Ok(())
 
@@ -167,6 +167,58 @@ impl Verifier {
             .into();
 
         Execution::new(&protocol, &mut mapper, unifier, sessions).print_sessions();
+
+        Ok(())
+    }
+
+    pub fn interactive(self, protocol: &str) -> miette::Result<()> {
+        let parsed = crate::parse_document(protocol)?;
+
+        let protocol =
+            Protocol::new(protocol.to_string(), parsed).map_err(|x| x.first().cloned().unwrap())?;
+
+        let mut unifier = Default::default();
+        let mut mapper = Default::default();
+        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let sessions: std::sync::Arc<Vec<_>> = (0..self.num_sessions)
+            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
+            .collect_vec()
+            .into();
+
+        let mut options = vec![Execution::new(
+            &protocol,
+            &mut mapper,
+            unifier.clone(),
+            sessions,
+        )];
+
+        while !options.is_empty() {
+            println!("================");
+            for (i, w) in options.iter_mut().enumerate() {
+                print!("\nTrace [{i}]:");
+                if w.has_compromised_secrets() {
+                    print!(" (Contains attack!)")
+                }
+
+                println!();
+                println!(
+                    "{}",
+                    Trace(
+                        w.trace
+                            .iter()
+                            .map(|entry| { TraceEntry::from_messages_trace(entry, &mut w.unifier) })
+                            .collect(),
+                    )
+                );
+            }
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input).unwrap();
+            let exe = options.remove(input.trim().parse().unwrap());
+            options.clear();
+
+            options.extend(exe.possible_next());
+        }
 
         Ok(())
     }
@@ -273,7 +325,7 @@ impl Verifier {
             }
 
             println!(
-                "Found no attack!{} executions, {:?}/execution",
+                "Found no attack!\n{} executions, {:?}/execution",
                 num_executions,
                 start.elapsed() / num_executions
             )

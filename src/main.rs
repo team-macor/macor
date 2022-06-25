@@ -29,6 +29,16 @@ enum Args {
         #[clap(value_parser)]
         file: PathBuf,
     },
+    /// Step through the protocol interactively
+    Interactive {
+        /// Number of sessions
+        #[clap(short, long, value_parser)]
+        num_sessions: u32,
+
+        /// The path to the protocol src
+        #[clap(value_parser)]
+        file: PathBuf,
+    },
     Pretty {
         /// The path to the protocol src
         #[clap(value_parser)]
@@ -65,6 +75,10 @@ fn main() -> miette::Result<()> {
         Args::Sessions { num_sessions, file } => {
             let src = std::fs::read_to_string(file).unwrap();
             Verifier::with_num_sessions(num_sessions).print_sessions(&src)?;
+        }
+        Args::Interactive { num_sessions, file } => {
+            let src = std::fs::read_to_string(file).unwrap();
+            Verifier::with_num_sessions(num_sessions).interactive(&src)?;
         }
         Args::Verify { num_sessions, file } => {
             let src = std::fs::read_to_string(file).unwrap();
