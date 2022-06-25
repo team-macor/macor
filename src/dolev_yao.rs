@@ -14,7 +14,7 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
             .iter()
             .any(|msg| unifier.resolve_full(*msg) == unifier.resolve_full(message))
         {
-            return true;
+            continue;
         }
 
         // Compose
