@@ -1,67 +1,59 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::{path::PathBuf, process::Command};
+use std::process::Command;
 
 pub fn bench_macor(c: &mut Criterion) {
-    let macor_path = "macor";
-    let protocol = "../example_programs/KeyEx1";
     let num_session = 1;
-    let num_samples = 10;
     let mut group = c.benchmark_group("Macor");
-    group.bench_function("MACOR", |b| {
-        b.iter(|| {
-            for _ in 0..num_samples {
-                // macor verify -n 2 path/to/my/Protocol.AnB
-                let _macor = Command::new(&macor_path)
+    for p in std::fs::read_dir("./example_programs/").unwrap() {
+        let p = p.unwrap().path();
+
+        group.bench_function(p.file_name().unwrap().to_str().unwrap(), |b| {
+            b.iter(|| {
+                Command::new("macor")
                     .arg("verify")
                     .arg("-n")
                     .arg(num_session.to_string())
-                    .arg(&protocol)
+                    .arg(&p.canonicalize().unwrap())
                     .output()
                     .expect("Could not find path for MACOR");
-            }
-        })
-    });
+            })
+        });
+    }
     group.finish();
 }
 
 pub fn bench_compare(c: &mut Criterion) {
-    //TODO ofmc path not hardcoded
-    let ofmc_path: PathBuf = "ofmc".into();
-    let macor_path = "macor";
-    let protocol = "../example_programs/KeyEx1";
     let num_session = 1;
-    let num_samples = 10;
-    let mut group = c.benchmark_group("Programs");
-    group.bench_function("OFMC", |b| {
-        b.iter(|| {
-            for _ in 0..num_samples {
-                // ofmc --numSess 2 path/to/my/Protocol.AnB
-                let _ofmc = Command::new(&ofmc_path)
-                    .arg("--numSess")
-                    .arg(num_session.to_string())
-                    .arg(&protocol)
-                    .output()
-                    .expect("Could not find path for OFMC");
-            }
-        })
-    });
+    let mut group = c.benchmark_group("Compare Macor and OFMC");
+    for p in std::fs::read_dir("./example_programs/").unwrap() {
+        let p = p.unwrap().path();
 
-    group.bench_function("MACOR", |b| {
-        b.iter(|| {
-            for _ in 0..num_samples {
-                let _macor = Command::new(&macor_path)
+        let test_name = p.file_name().unwrap().to_str().unwrap();
+
+        group.bench_function(format!("{test_name} - macor"), |b| {
+            b.iter(|| {
+                Command::new("macor")
                     .arg("verify")
                     .arg("-n")
                     .arg(num_session.to_string())
-                    .arg(&protocol)
+                    .arg(&p.canonicalize().unwrap())
                     .output()
                     .expect("Could not find path for MACOR");
-            }
-        })
-    });
+            })
+        });
+        group.bench_function(format!("{test_name} - ofmc"), |b| {
+            b.iter(|| {
+                Command::new("ofmc")
+                    .arg("--numSess")
+                    .arg(num_session.to_string())
+                    .arg(&p.canonicalize().unwrap())
+                    .output()
+                    .expect("Could not find path for OFMC");
+            })
+        });
+    }
     group.finish();
 }
 
-//criterion_group!(benches, bench_compare);
-criterion_group!(benches, bench_macor);
+criterion_group!(benches, bench_macor, bench_compare);
 criterion_main!(benches);
