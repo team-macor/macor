@@ -1,0 +1,17 @@
+Protocol: SimpleOpaque
+
+Types: Agent A,B;
+       Number NA;
+       Function h
+
+Knowledge:
+  A: A,B,h;
+  B: A,B,h
+
+Actions:
+  A->B: h(NA)
+  B->A: h
+  A->B: NA
+
+Goals:
+  NA secret between A,B
