@@ -11,9 +11,9 @@ use crate::{
 };
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct ActorName(pub Ident<SmolStr>);
+pub struct AgentName(pub Ident<SmolStr>);
 
-impl std::fmt::Debug for ActorName {
+impl std::fmt::Debug for AgentName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
@@ -97,14 +97,14 @@ impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Variable {
-    Actor(ActorName),
+    Agent(AgentName),
     SymmetricKey(Ident<SmolStr>),
     Number(Ident<SmolStr>),
 }
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub enum Constant {
     Intruder,
-    Actor(ActorName),
+    Agent(AgentName),
     Function(Func),
     Nonce(Nonce),
 }
@@ -157,23 +157,23 @@ pub enum Direction {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PacketPattern {
-    pub from: ActorName,
-    pub to: ActorName,
+    pub from: AgentName,
+    pub to: AgentName,
     pub direction: Direction,
     pub packet: Packet,
     pub initiates: IndexSet<Variable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ActorKind {
+pub enum AgentKind {
     Variable,
     Constant,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProtocolActor {
-    pub name: ActorName,
-    pub kind: ActorKind,
+pub struct ProtocolAgent {
+    pub name: AgentName,
+    pub kind: AgentKind,
     pub initial_knowledge: Knowledge,
     pub messages: Vec<PacketPattern>,
 }
@@ -186,9 +186,9 @@ pub enum Goal<A> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Protocol {
-    pub actors: Vec<ProtocolActor>,
-    pub initiations: IndexMap<Variable, ActorName>,
-    pub goals: Vec<Goal<ActorName>>,
+    pub agents: Vec<ProtocolAgent>,
+    pub initiations: IndexMap<Variable, AgentName>,
+    pub goals: Vec<Goal<AgentName>>,
 }
 
 struct ProtocolAction {
@@ -199,20 +199,20 @@ struct ProtocolAction {
 }
 
 impl Protocol {
-    fn new_protocol_actor(
+    fn new_protocol_agent(
         agent: &Ident<SmolStr>,
         knowledge: &[ast::Message<&str>],
         ctx: &mut TypingContext,
         actions: &[ProtocolAction],
-    ) -> ProtocolActor {
+    ) -> ProtocolAgent {
         let k: Knowledge<UntypedStage> = knowledge.into();
 
-        ProtocolActor {
-            name: ActorName(agent.convert()),
+        ProtocolAgent {
+            name: AgentName(agent.convert()),
             kind: if agent.is_constant() {
-                ActorKind::Constant
+                AgentKind::Constant
             } else {
-                ActorKind::Variable
+                AgentKind::Variable
             },
             initial_knowledge: k.to_typed(ctx),
             messages: actions
@@ -227,8 +227,8 @@ impl Protocol {
                     };
 
                     Some(PacketPattern {
-                        from: ActorName(a.from.convert()),
-                        to: ActorName(a.to.convert()),
+                        from: AgentName(a.from.convert()),
+                        to: AgentName(a.to.convert()),
                         direction,
                         packet: a.messages.iter().cloned().collect(),
                         initiates: a.initiates.clone(),
@@ -286,17 +286,17 @@ impl Protocol {
 
             action.initiates = in_this.difference(&seen).cloned().collect();
             for var in &action.initiates {
-                initiations.insert(var.clone(), ActorName(action.from.clone()));
+                initiations.insert(var.clone(), AgentName(action.from.clone()));
             }
             seen.extend(in_this.into_iter());
         }
 
-        let actors = document
+        let agents = document
             .knowledge
             .agents
             .iter()
             .map(|(agent, knowledge)| {
-                Self::new_protocol_actor(&agent.convert(), knowledge, &mut ctx, &actions)
+                Self::new_protocol_agent(&agent.convert(), knowledge, &mut ctx, &actions)
             })
             .collect();
 
@@ -310,8 +310,8 @@ impl Protocol {
                     msgs,
                     weakly: _,
                 } => Goal::Authenticates(
-                    ActorName(a.convert()),
-                    ActorName(b.convert()),
+                    AgentName(a.convert()),
+                    AgentName(b.convert()),
                     msgs.iter()
                         .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
                         .collect(),
@@ -323,7 +323,7 @@ impl Protocol {
                 } => Goal::SecretBetween(
                     agents
                         .iter()
-                        .map(|agent| ActorName(agent.convert()))
+                        .map(|agent| AgentName(agent.convert()))
                         .collect(),
                     msgs.iter()
                         .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
@@ -334,7 +334,7 @@ impl Protocol {
 
         if ctx.errors.is_empty() {
             Ok(Protocol {
-                actors,
+                agents,
                 initiations,
                 goals,
             })
@@ -374,11 +374,11 @@ impl Message {
         }
     }
 
-    pub(crate) fn replace_agent_with_intruder(&self, current_agent: &ActorName) -> Self {
+    pub(crate) fn replace_agent_with_intruder(&self, current_agent: &AgentName) -> Self {
         match self {
             Message::Variable(var) => match var {
-                Variable::Actor(a) if a == current_agent => Message::Constant(Constant::Intruder),
-                Variable::SymmetricKey(_) | Variable::Number(_) | Variable::Actor(_) => {
+                Variable::Agent(a) if a == current_agent => Message::Constant(Constant::Intruder),
+                Variable::SymmetricKey(_) | Variable::Number(_) | Variable::Agent(_) => {
                     Message::Variable(var.clone())
                 }
             },
@@ -401,12 +401,12 @@ impl Message {
     pub fn span(&self) -> Option<miette::SourceSpan> {
         match self {
             Message::Variable(var) => match var {
-                Variable::Actor(a) => Some(a.span()),
+                Variable::Agent(a) => Some(a.span()),
                 Variable::SymmetricKey(n) | Variable::Number(n) => Some(n.span()),
             },
             Message::Constant(c) => match c {
                 Constant::Intruder => None,
-                Constant::Actor(a) => Some(a.span()),
+                Constant::Agent(a) => Some(a.span()),
                 Constant::Function(f) => match f {
                     Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => None,
                     Func::User(f) => Some(f.span()),
@@ -437,7 +437,7 @@ fn join_span(a: miette::SourceSpan, b: miette::SourceSpan) -> miette::SourceSpan
 
     (start, end).into()
 }
-impl ActorName {
+impl AgentName {
     pub fn span(&self) -> miette::SourceSpan {
         self.0 .1
     }

@@ -11,14 +11,14 @@ use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, Paral
 
 enum Participant {
     Intruder,
-    Actor(String),
+    Agent(String),
 }
 
 impl std::fmt::Display for Participant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Participant::Intruder => write!(f, "i"),
-            Participant::Actor(actor) => write!(f, "{}", actor),
+            Participant::Agent(agent) => write!(f, "{}", agent),
         }
     }
 }
@@ -64,8 +64,8 @@ impl TraceEntry {
         let sender = match &entry.sender {
             Some(sender) => match unifier.probe_value(sender.1) {
                 Message::Intruder => Participant::Intruder,
-                Message::Variable(s, Kind::Actor) => Participant::Actor(s.unwrap().to_string()),
-                Message::Constant(s, Kind::Actor) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
+                Message::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
                 u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -74,8 +74,8 @@ impl TraceEntry {
         let receiver = match &entry.receiver {
             Some(receiver) => match unifier.probe_value(receiver.1) {
                 Message::Intruder => Participant::Intruder,
-                Message::Variable(s, Kind::Actor) => Participant::Actor(s.unwrap().to_string()),
-                Message::Constant(s, Kind::Actor) => Participant::Actor(s.1.unwrap().to_string()),
+                Message::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
+                Message::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
                 u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,

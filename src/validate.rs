@@ -9,7 +9,7 @@ use crate::{
     protocol::{Direction, Protocol, SessionId},
 };
 
-struct ActorState {
+struct AgentState {
     id: MessageId,
     knowledge: Knowledge,
     step: usize,
@@ -21,25 +21,25 @@ pub enum ValidateError {
     CannotSendSelf {
         #[source_code]
         src: String,
-        #[label("Here, the actor '{actor:?}' tries to send a message to themselves")]
+        #[label("Here, the agent '{agent:?}' tries to send a message to themselves")]
         err_span: SourceSpan,
-        actor: Ident<SmolStr>,
+        agent: Ident<SmolStr>,
     },
-    #[error("Actor does not exist")]
-    ActorDoesNotExist {
+    #[error("Agent does not exist")]
+    AgentDoesNotExist {
         #[source_code]
         src: String,
-        #[label("This actor '{actor:?}' does not exist in the protocol")]
+        #[label("This agent '{agent:?}' does not exist in the protocol")]
         err_span: SourceSpan,
-        actor: Ident<SmolStr>,
+        agent: Ident<SmolStr>,
     },
     #[error("Message not constructable")]
     MessageIsNotConstructable {
         #[source_code]
         src: String,
-        #[label("At this point in the protocol the actor '{actor:?}' cannot construct:\n  {msg:?}\nTheir current knowledge is:\n  {:?}", knowledge.iter().format(", "))]
+        #[label("At this point in the protocol the agent '{agent:?}' cannot construct:\n  {msg:?}\nTheir current knowledge is:\n  {:?}", knowledge.iter().format(", "))]
         err_span: SourceSpan,
-        actor: Ident<SmolStr>,
+        agent: Ident<SmolStr>,
         msg: FullMessage,
         knowledge: Vec<FullMessage>,
     },
@@ -60,12 +60,12 @@ impl Protocol {
 pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<ValidateError> {
     let mut errors = vec![];
 
-    let mut actor_states = session
-        .actors
+    let mut agent_states = session
+        .agents
         .iter()
-        .map(|actor| ActorState {
-            id: actor.actor_id,
-            knowledge: actor.initial_knowledge.clone(),
+        .map(|agent| AgentState {
+            id: agent.agent_id,
+            knowledge: agent.initial_knowledge.clone(),
             step: 0,
         })
         .collect_vec();
@@ -73,8 +73,8 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
     loop {
         let mut did_progress = false;
 
-        for (sender_i, sender) in session.actors.iter().enumerate() {
-            let sender_state = &actor_states[sender_i];
+        for (sender_i, sender) in session.agents.iter().enumerate() {
+            let sender_state = &agent_states[sender_i];
 
             if sender.strand.len() == sender_state.step {
                 continue;
@@ -86,18 +86,18 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                 errors.push(ValidateError::CannotSendSelf {
                     src: src.to_string(),
                     err_span: sender_msg.ast_node.to.span(),
-                    actor: sender_msg.ast_node.to.0.clone(),
+                    agent: sender_msg.ast_node.to.0.clone(),
                 });
                 continue;
             }
 
             if sender_msg.direction == Direction::Outgoing {
-                if let Some(recipient_i) = actor_states
+                if let Some(recipient_i) = agent_states
                     .iter()
                     .position(|a| a.id == sender_msg.receiver)
                 {
-                    let recipient = &session.actors[recipient_i];
-                    let recipient_state = &actor_states[recipient_i];
+                    let recipient = &session.agents[recipient_i];
+                    let recipient_state = &agent_states[recipient_i];
 
                     if recipient.strand.len() == recipient_state.step {
                         todo!()
@@ -131,7 +131,7 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                                 err_span: sender_msg.ast_node.packet.messages[msg_i]
                                     .span()
                                     .unwrap(),
-                                actor: sender.name.clone(),
+                                agent: sender.name.clone(),
                                 msg: unifier.resolve_full(sender_msg.messages[msg_i]),
                                 knowledge: sender_state
                                     .knowledge
@@ -143,21 +143,21 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                         }
                     }
 
-                    actor_states[sender_i].step += 1;
-                    actor_states[recipient_i].step += 1;
+                    agent_states[sender_i].step += 1;
+                    agent_states[recipient_i].step += 1;
 
-                    actor_states[recipient_i]
+                    agent_states[recipient_i]
                         .knowledge
                         .0
                         .extend(sender_msg.messages.iter().cloned());
-                    dolev_yao::augment_knowledge(&mut actor_states[recipient_i].knowledge, unifier);
+                    dolev_yao::augment_knowledge(&mut agent_states[recipient_i].knowledge, unifier);
 
                     did_progress = true;
                 } else {
-                    errors.push(ValidateError::ActorDoesNotExist {
+                    errors.push(ValidateError::AgentDoesNotExist {
                         src: src.to_string(),
                         err_span: sender_msg.ast_node.to.span(),
-                        actor: sender_msg.ast_node.to.0.clone(),
+                        agent: sender_msg.ast_node.to.0.clone(),
                     });
                 }
             }

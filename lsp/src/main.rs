@@ -227,20 +227,20 @@ impl Backend {
     }
     fn find_protocol(&self, byte_offset: usize, protocol: &protocol::Protocol) -> Option<String> {
         protocol
-            .actors
+            .agents
             .iter()
-            .find_map(|actor| {
-                self.find_actor(byte_offset, &actor.name)
+            .find_map(|agent| {
+                self.find_agent(byte_offset, &agent.name)
                     .or_else(|| {
-                        actor
+                        agent
                             .initial_knowledge
                             .iter()
                             .find_map(|msg| self.find_msg(byte_offset, msg))
                     })
                     .or_else(|| {
-                        actor.messages.iter().find_map(|pat| {
-                            self.find_actor(byte_offset, &pat.from)
-                                .or_else(|| self.find_actor(byte_offset, &pat.to))
+                        agent.messages.iter().find_map(|pat| {
+                            self.find_agent(byte_offset, &pat.from)
+                                .or_else(|| self.find_agent(byte_offset, &pat.to))
                                 .or_else(|| {
                                     pat.packet
                                         .iter()
@@ -251,20 +251,20 @@ impl Backend {
             })
             .or_else(|| {
                 protocol.goals.iter().find_map(|goal| match goal {
-                    protocol::Goal::SecretBetween(actors, msgs) => actors
+                    protocol::Goal::SecretBetween(agents, msgs) => agents
                         .iter()
-                        .find_map(|a| self.find_actor(byte_offset, a))
+                        .find_map(|a| self.find_agent(byte_offset, a))
                         .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
                     protocol::Goal::Authenticates(a, b, msgs) => self
-                        .find_actor(byte_offset, a)
-                        .or_else(|| self.find_actor(byte_offset, b))
+                        .find_agent(byte_offset, a)
+                        .or_else(|| self.find_agent(byte_offset, b))
                         .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
                 })
             })
     }
-    fn find_actor(&self, byte_offset: usize, name: &protocol::ActorName) -> Option<String> {
+    fn find_agent(&self, byte_offset: usize, name: &protocol::AgentName) -> Option<String> {
         if name.0.contains(byte_offset) {
-            Some(format!("Actor: `{:?}`", name))
+            Some(format!("Agent: `{:?}`", name))
         } else {
             None
         }
@@ -272,7 +272,7 @@ impl Backend {
     fn find_msg(&self, byte_offset: usize, msg: &protocol::Message) -> Option<String> {
         match msg {
             protocol::Message::Variable(v) => match v {
-                protocol::Variable::Actor(a) => return self.find_actor(byte_offset, a),
+                protocol::Variable::Agent(a) => return self.find_agent(byte_offset, a),
                 protocol::Variable::SymmetricKey(s) => {
                     if s.contains(byte_offset) {
                         return Some(format!("Symmetric Key: `{:?}`", s));
@@ -286,7 +286,7 @@ impl Backend {
             },
             protocol::Message::Constant(c) => match c {
                 protocol::Constant::Intruder => {}
-                protocol::Constant::Actor(a) => return self.find_actor(byte_offset, a),
+                protocol::Constant::Agent(a) => return self.find_agent(byte_offset, a),
                 protocol::Constant::Function(f) => match f {
                     protocol::Func::SymEnc
                     | protocol::Func::AsymEnc

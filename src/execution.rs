@@ -12,15 +12,15 @@ use crate::{
 type Rc<T> = std::sync::Arc<T>;
 
 #[derive(Debug, Clone)]
-struct ExecutionActorState {
-    actor_id: MessageId,
+struct ExecutionAgentState {
+    agent_id: MessageId,
     current_execution: usize,
     inbox: VecDeque<Vec<MessageId>>,
 }
 
 #[derive(Debug, Clone)]
 struct ExecutionSessionState {
-    actors: Vec<ExecutionActorState>,
+    agents: Vec<ExecutionAgentState>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl Intruder {
                     if new_unifier.unify(secret.msg, k).is_ok()
                     // if self.knowledge.can_construct(unifier, secret)
                         && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
-                        .between_actors
+                        .between_agents
                         .iter()
                         .any(|agent| new_unifier.are_unified(intruder_id, *agent))
                     {
@@ -114,11 +114,11 @@ impl Execution {
         let states = sessions
             .iter()
             .map(|session| ExecutionSessionState {
-                actors: session
-                    .actors
+                agents: session
+                    .agents
                     .iter()
-                    .map(|actor| ExecutionActorState {
-                        actor_id: actor.actor_id,
+                    .map(|agent| ExecutionAgentState {
+                        agent_id: agent.agent_id,
                         current_execution: 0,
                         inbox: Default::default(),
                     })
@@ -130,16 +130,16 @@ impl Execution {
         let mut intruder = Intruder::default();
 
         for session in sessions.iter() {
-            for actor in &session.actors {
-                intruder.knowledge.0.push(actor.actor_id);
+            for agent in &session.agents {
+                intruder.knowledge.0.push(agent.agent_id);
             }
-            for actor in &protocol.actors {
-                if actor.name.0.is_constant() {
+            for agent in &protocol.agents {
+                if agent.name.0.is_constant() {
                     continue;
                 }
 
-                for msg in &actor.initial_knowledge.0 {
-                    let msg = msg.replace_agent_with_intruder(&actor.name);
+                for msg in &agent.initial_knowledge.0 {
+                    let msg = msg.replace_agent_with_intruder(&agent.name);
                     let registered_msg = converter.register_typed_message(
                         &crate::messages::ForWho::Intruder(session.session_id),
                         &protocol.initiations,
@@ -186,18 +186,18 @@ impl Execution {
             .take(num_used_sessions + 1)
             .flat_map(move |(session_i, (session, session_state))| {
                 session
-                    .actors
+                    .agents
                     .iter()
-                    .zip_eq(session_state.actors.iter())
+                    .zip_eq(session_state.agents.iter())
                     .enumerate()
-                    .flat_map(move |(actor_i, (actor, state))| {
-                        if let Some(transaction) = actor.strand.get(state.current_execution) {
+                    .flat_map(move |(agent_i, (agent, state))| {
+                        if let Some(transaction) = agent.strand.get(state.current_execution) {
                             match transaction.direction {
                                 Direction::Outgoing => {
                                     let mut new = self.clone();
 
                                     if let Some(intruder) = &mut new.intruder {
-                                        new.states[session_i].actors[actor_i].current_execution +=
+                                        new.states[session_i].agents[agent_i].current_execution +=
                                             1;
 
                                         intruder.knowledge.0.extend(transaction.messages.clone());
@@ -206,8 +206,8 @@ impl Execution {
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: Some((
-                                                    actor.name.as_str().into(),
-                                                    actor.actor_id,
+                                                    agent.name.as_str().into(),
+                                                    agent.agent_id,
                                                 )),
                                                 receiver: None,
                                                 messages: transaction.messages.clone(),
@@ -215,28 +215,28 @@ impl Execution {
                                             .into(),
                                         );
                                     } else if let Some(receiver_i) = new.states[session_i]
-                                        .actors
+                                        .agents
                                         .iter_mut()
-                                        .position(|a| a.actor_id == transaction.receiver)
+                                        .position(|a| a.agent_id == transaction.receiver)
                                     {
-                                        new.states[session_i].actors[actor_i].current_execution +=
+                                        new.states[session_i].agents[agent_i].current_execution +=
                                             1;
 
                                         new.trace.push(
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: Some((
-                                                    actor.name.as_str().into(),
-                                                    actor.actor_id,
+                                                    agent.name.as_str().into(),
+                                                    agent.agent_id,
                                                 )),
                                                 receiver: Some(
                                                     (
-                                                        self.sessions[session_i].actors[receiver_i]
+                                                        self.sessions[session_i].agents[receiver_i]
                                                             .name
                                                             .as_str()
                                                             .into(),
-                                                        self.sessions[session_i].actors[receiver_i]
-                                                            .actor_id,
+                                                        self.sessions[session_i].agents[receiver_i]
+                                                            .agent_id,
                                                     ),
                                                 ),
                                                 messages: transaction.messages.clone(),
@@ -244,10 +244,10 @@ impl Execution {
                                             .into(),
                                         );
 
-                                        let r = &mut new.states[session_i].actors[receiver_i];
+                                        let r = &mut new.states[session_i].agents[receiver_i];
                                         r.inbox.push_back(transaction.messages.clone());
                                     } else {
-                                        unreachable!("cannot send message to unknown actor")
+                                        unreachable!("cannot send message to unknown agent")
                                     }
 
                                     vec![new]
@@ -258,7 +258,7 @@ impl Execution {
 
                                         let mut new = self.clone();
 
-                                        let incoming = new.states[session_i].actors[actor_i]
+                                        let incoming = new.states[session_i].agents[agent_i]
                                             .inbox
                                             .pop_back()
                                             .unwrap();
@@ -271,7 +271,7 @@ impl Execution {
                                             }
                                         }
 
-                                        new.states[session_i].actors[actor_i].current_execution +=
+                                        new.states[session_i].agents[agent_i].current_execution +=
                                             1;
 
                                         vec![new]
@@ -289,7 +289,7 @@ impl Execution {
                                                 .0
                                                 .extend(transaction.messages.clone());
 
-                                            new.states[session_i].actors[actor_i]
+                                            new.states[session_i].agents[agent_i]
                                                 .current_execution += 1;
 
                                             new.trace.push(
@@ -297,12 +297,12 @@ impl Execution {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
                                                     receiver: Some((
-                                                        new.sessions[session_i].actors[actor_i]
+                                                        new.sessions[session_i].agents[agent_i]
                                                             .name
                                                             .clone()
                                                             .into(),
-                                                        new.states[session_i].actors[actor_i]
-                                                            .actor_id,
+                                                        new.states[session_i].agents[agent_i]
+                                                            .agent_id,
                                                     )),
                                                     messages: transaction.messages.clone(),
                                                 }

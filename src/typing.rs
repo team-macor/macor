@@ -5,7 +5,7 @@ use miette::SourceSpan;
 
 use crate::{
     dolev_yao_old::Knowledge,
-    protocol::{ActorName, Constant, Func, Message, Variable},
+    protocol::{AgentName, Constant, Func, Message, Variable},
 };
 
 pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash {
@@ -131,9 +131,9 @@ impl Message<UntypedStage<'_>> {
                     match ty {
                         Type::Agent => {
                             if is_constant {
-                                Message::Constant(Constant::Actor(ActorName(name.convert())))
+                                Message::Constant(Constant::Agent(AgentName(name.convert())))
                             } else {
-                                Message::Variable(Variable::Actor(ActorName(name.convert())))
+                                Message::Variable(Variable::Agent(AgentName(name.convert())))
                             }
                         }
                         Type::SymmetricKey => {
@@ -174,7 +174,7 @@ impl Message<UntypedStage<'_>> {
                         name: name.to_string(),
                         err_span: name.span(),
                     });
-                    Message::Variable(Variable::Actor(ActorName(name.convert())))
+                    Message::Variable(Variable::Agent(AgentName(name.convert())))
                 }
             }
             Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
