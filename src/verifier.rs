@@ -3,12 +3,13 @@ use std::collections::VecDeque;
 use itertools::Itertools;
 
 use crate::{
-    execution::{self, Execution},
-    messages::{self, Converter, FullTerm, Kind, Term, Unifier},
+    execution::{Execution, ExecutionTraceEntry, TraceEntry},
+    messages::{Converter, FullTerm, Kind, Session, Term, Unifier},
     protocol::{Func, Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
 
+#[derive(Clone)]
 enum Participant {
     Intruder,
     Agent(String),
@@ -41,61 +42,23 @@ impl std::fmt::Display for FullTerm {
     }
 }
 
-struct TraceEntry {
-    sender: Participant,
-    receiver: Participant,
-    terms: Vec<FullTerm>,
-}
-
-impl std::fmt::Display for TraceEntry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} -> {}: {}",
-            self.sender,
-            self.receiver,
-            self.terms.iter().format(", ")
-        )
+impl TraceEntry<Participant, FullTerm> {
+    fn from_terms_trace(entry: &ExecutionTraceEntry, unifier: &mut Unifier) -> Self {
+        entry
+            .map_participant(|p| match p {
+                Some((_, sender)) => match unifier.probe_value(*sender) {
+                    Term::Intruder => Participant::Intruder,
+                    Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
+                    Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
+                    u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
+                },
+                None => Participant::Intruder,
+            })
+            .map_term(|term| unifier.resolve_full(*term))
     }
 }
 
-impl TraceEntry {
-    fn from_terms_trace(entry: &execution::TraceEntry, unifier: &mut Unifier) -> Self {
-        let sender = match &entry.sender {
-            Some(sender) => match unifier.probe_value(sender.1) {
-                Term::Intruder => Participant::Intruder,
-                Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
-                Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
-                u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
-            },
-            None => Participant::Intruder,
-        };
-
-        let receiver = match &entry.receiver {
-            Some(receiver) => match unifier.probe_value(receiver.1) {
-                Term::Intruder => Participant::Intruder,
-                Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
-                Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
-                u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
-            },
-            None => Participant::Intruder,
-        };
-
-        let terms = entry
-            .terms
-            .iter()
-            .map(|term| unifier.resolve_full(*term))
-            .collect();
-
-        Self {
-            sender,
-            receiver,
-            terms,
-        }
-    }
-}
-
-pub struct Trace(Vec<TraceEntry>);
+pub struct Trace(Vec<TraceEntry<Participant, FullTerm>>);
 
 impl std::fmt::Display for Trace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -158,8 +121,8 @@ impl Verifier {
         let mut unifier = Unifier::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
-        let sessions: std::sync::Arc<Vec<_>> = (0..self.num_sessions)
-            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
+        let sessions = (0..self.num_sessions)
+            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();
 
@@ -177,8 +140,8 @@ impl Verifier {
         let mut unifier = Default::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
-        let sessions: std::sync::Arc<Vec<_>> = (0..self.num_sessions)
-            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
+        let sessions = (0..self.num_sessions)
+            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();
 
@@ -257,8 +220,8 @@ impl Verifier {
         let mut unifier = Default::default();
         let mut mapper = Default::default();
         let mut converter = Converter::new(&mut unifier, &mut mapper);
-        let sessions: std::sync::Arc<Vec<_>> = (0..self.num_sessions)
-            .map(|i| messages::Session::new(&protocol, SessionId(i), &mut converter))
+        let sessions = (0..self.num_sessions)
+            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
             .collect_vec()
             .into();
 

@@ -24,11 +24,48 @@ struct ExecutionSessionState {
 }
 
 #[derive(Debug, Clone)]
-pub struct TraceEntry {
+pub struct TraceEntry<P, M> {
     session: SessionId,
-    pub sender: Option<(SmolStr, TermId)>,
-    pub receiver: Option<(SmolStr, TermId)>,
-    pub terms: Vec<TermId>,
+    pub sender: P,
+    pub receiver: P,
+    pub terms: Vec<M>,
+}
+
+impl<P, M> TraceEntry<P, M> {
+    pub fn map_participant<T>(&self, mut f: impl FnMut(&P) -> T) -> TraceEntry<T, M>
+    where
+        M: Clone,
+    {
+        TraceEntry {
+            session: self.session,
+            sender: f(&self.sender),
+            receiver: f(&self.receiver),
+            terms: self.terms.clone(),
+        }
+    }
+    pub fn map_term<T>(&self, f: impl FnMut(&M) -> T) -> TraceEntry<P, T>
+    where
+        P: Clone,
+    {
+        TraceEntry {
+            session: self.session,
+            sender: self.sender.clone(),
+            receiver: self.receiver.clone(),
+            terms: self.terms.iter().map(f).collect(),
+        }
+    }
+}
+
+impl<P: std::fmt::Display, M: std::fmt::Display> std::fmt::Display for TraceEntry<P, M> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> {}: {}",
+            self.sender,
+            self.receiver,
+            self.terms.iter().format(", ")
+        )
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -95,13 +132,15 @@ impl Intruder {
     }
 }
 
+pub type ExecutionTraceEntry = TraceEntry<Option<(SmolStr, TermId)>, TermId>;
+
 #[derive(Debug, Clone)]
 pub struct Execution {
     pub unifier: Unifier,
     intruder: Option<Intruder>,
     states: Vec<ExecutionSessionState>,
     sessions: Rc<Vec<Session>>,
-    pub trace: Vec<Rc<TraceEntry>>,
+    pub trace: Vec<Rc<ExecutionTraceEntry>>,
 }
 
 impl Execution {
