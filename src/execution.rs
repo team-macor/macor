@@ -86,7 +86,15 @@ impl Intruder {
         self.constraints
             .iter()
             .map(|r| r.as_ref())
-            .all(|(k, msgs)| msgs.iter().all(|&msg| k.can_construct(unifier, msg)))
+            .all(|(k, msgs)| {
+                msgs.iter().all(|&msg| match unifier.probe_value(msg) {
+                    crate::messages::Message::Intruder => true,
+                    crate::messages::Message::Variable(_, _) => true,
+                    crate::messages::Message::Constant(_, _) => k.can_construct(unifier, msg),
+                    crate::messages::Message::Composition(_, _) => k.can_construct(unifier, msg),
+                    crate::messages::Message::Tuple(_) => k.can_construct(unifier, msg),
+                })
+            })
     }
 
     fn conforms_to_constraints(&mut self, unifier: &mut Unifier) -> bool {

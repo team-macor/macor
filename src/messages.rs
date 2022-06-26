@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use crate::dolev_yao::{augment_knowledge, can_derive};
+use crate::dolev_yao::{self, augment_knowledge, can_derive_with_unify};
 use crate::protocol::{self, ActorName, Direction, Func, Protocol, SessionId};
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
@@ -404,6 +404,13 @@ impl Unifier {
             }
         };
         FullMessage(msg)
+    }
+
+    pub fn new_variable(&mut self, kind: Kind, hint: impl Into<Hint>) -> MessageId {
+        self.table.new_key(Message::Variable(hint.into(), kind))
+    }
+    pub fn register(&mut self, msg: Message<MessageId>) -> MessageId {
+        self.table.new_key(msg)
     }
 }
 
@@ -898,6 +905,9 @@ type SmallStr = SmolStr;
 #[derive(Debug, Clone)]
 pub struct Transaction {
     pub ast_node: protocol::PacketPattern,
+    pub pre_knowledge: Knowledge,
+    pub post_knowledge: Knowledge,
+    pub post_required_unifications: Vec<(MessageId, MessageId)>,
     pub sender: MessageId,
     pub receiver: MessageId,
     pub direction: Direction,
@@ -959,32 +969,103 @@ impl Session {
 
                 initial_knowledge.sort_unstable_by_key(|msg| converter.unifier.resolve_full(*msg));
                 initial_knowledge.dedup();
+                let initial_knowledge = Knowledge(initial_knowledge);
+
+                let mut strand = actor
+                    .messages
+                    .iter()
+                    .map(|pattern| Transaction {
+                        ast_node: pattern.clone(),
+                        pre_knowledge: Knowledge(vec![]),
+                        post_knowledge: Knowledge(vec![]),
+                        post_required_unifications: vec![],
+                        sender: converter.get_actor(&for_who, &pattern.from),
+                        receiver: converter.get_actor(&for_who, &pattern.to),
+                        direction: pattern.direction,
+                        messages: pattern
+                            .packet
+                            .iter()
+                            .map(|msg| {
+                                converter.register_typed_message(
+                                    &for_who,
+                                    &protocol.initiations,
+                                    msg.clone(),
+                                )
+                            })
+                            .collect(),
+                    })
+                    .collect_vec();
+
+                let mut obligations = vec![];
+
+                strand
+                    .iter_mut()
+                    .fold(initial_knowledge.clone(), |mut k, t| {
+                        dolev_yao::augment_knowledge(&mut k, converter.unifier);
+
+                        t.pre_knowledge = k.clone();
+
+                        for msg in &mut t.messages {
+                            let (new_msg, reqs) =
+                                dolev_yao::requirements_to_check(&k, *msg, converter.unifier);
+
+                            if !reqs.is_empty() {
+                                *msg = new_msg;
+                                eprintln!(
+                                    "{:?}",
+                                    reqs.iter()
+                                        .map(|r| r.fmap(|&id| converter.unifier.resolve_full(id)))
+                                        .format(", ")
+                                );
+
+                                obligations.extend(reqs);
+                            }
+                        }
+
+                        k.0.extend(t.messages.iter().copied());
+
+                        dolev_yao::augment_knowledge(&mut k, converter.unifier);
+
+                        t.post_knowledge = k.clone();
+
+                        k
+                    });
+
+                for obligation in obligations {
+                    let i = strand.iter().position(|t| {
+                        obligation.when_have.iter().all(|&id| {
+                            dolev_yao::can_derive(&t.post_knowledge, id, converter.unifier)
+                        })
+                    });
+
+                    if let Some(i) = i {
+                        println!(
+                            "Obligation {:?} can be solved at {:?}",
+                            obligation.fmap(|&id| converter.unifier.resolve_full(id)),
+                            i
+                        );
+
+                        strand[i]
+                            .post_required_unifications
+                            .push((obligation.this, obligation.should_eq));
+                    } else {
+                        eprintln!(
+                            "{:?} is never checkable. Final knowledge {:?}",
+                            obligation.fmap(|&id| converter.unifier.resolve_full(id)),
+                            strand
+                                .last()
+                                .unwrap()
+                                .post_knowledge
+                                .resoled(converter.unifier)
+                        )
+                    }
+                }
 
                 SessionActor {
                     name: actor.name.0.clone(),
                     actor_id: converter.get_actor(&for_who, &actor.name),
-                    initial_knowledge: Knowledge(initial_knowledge),
-                    strand: actor
-                        .messages
-                        .iter()
-                        .map(|pattern| Transaction {
-                            ast_node: pattern.clone(),
-                            sender: converter.get_actor(&for_who, &pattern.from),
-                            receiver: converter.get_actor(&for_who, &pattern.to),
-                            direction: pattern.direction,
-                            messages: pattern
-                                .packet
-                                .iter()
-                                .map(|msg| {
-                                    converter.register_typed_message(
-                                        &for_who,
-                                        &protocol.initiations,
-                                        msg.clone(),
-                                    )
-                                })
-                                .collect_vec(),
-                        })
-                        .collect(),
+                    initial_knowledge,
+                    strand,
                 }
             })
             .collect_vec();
@@ -1039,13 +1120,19 @@ impl Session {
             );
             for t in &actor.strand {
                 println!(
-                    ">> {:?}->{:?}: {:?}",
+                    ">> {:?}->{:?}: {:?}\t\t\t{:?}",
                     unifier.resolve_full(t.sender),
                     unifier.resolve_full(t.receiver),
                     t.messages
                         .iter()
                         .map(|&msg| unifier.resolve_full(msg))
-                        .collect_vec()
+                        .collect_vec(),
+                    t.post_required_unifications
+                        .iter()
+                        .map(|&(l, r)| [unifier.resolve_full(l), unifier.resolve_full(r)]
+                            .into_iter()
+                            .format(" == "))
+                        .format(", ")
                 );
             }
         }
@@ -1074,7 +1161,7 @@ impl Knowledge {
         //     return true;
         // }
 
-        if can_derive(self, msg, unifier) {
+        if can_derive_with_unify(self, msg, unifier) {
             return true;
         }
 
