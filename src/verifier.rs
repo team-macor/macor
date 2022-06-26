@@ -198,15 +198,43 @@ impl Verifier {
                 }
 
                 println!();
-                println!(
-                    "{}",
-                    Trace(
-                        w.trace
-                            .iter()
-                            .map(|entry| { TraceEntry::from_messages_trace(entry, &mut w.unifier) })
-                            .collect(),
-                    )
-                );
+
+                const USE_INTERNAL_FORMAT: bool = false;
+
+                if USE_INTERNAL_FORMAT {
+                    for entry in &w.trace {
+                        println!(
+                            "  {:?}->{:?}: {:?}",
+                            if let Some((_, e)) = entry.sender {
+                                unifier.resolve_full(e)
+                            } else {
+                                FullMessage(Message::Intruder)
+                            },
+                            if let Some((_, e)) = entry.receiver {
+                                unifier.resolve_full(e)
+                            } else {
+                                FullMessage(Message::Intruder)
+                            },
+                            entry
+                                .messages
+                                .iter()
+                                .map(|&msg| unifier.resolve_full(msg))
+                                .format(", ")
+                        )
+                    }
+                } else {
+                    println!(
+                        "{}",
+                        Trace(
+                            w.trace
+                                .iter()
+                                .map(|entry| {
+                                    TraceEntry::from_messages_trace(entry, &mut w.unifier)
+                                })
+                                .collect(),
+                        )
+                    );
+                }
             }
 
             let mut input = String::new();
