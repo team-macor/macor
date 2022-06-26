@@ -294,18 +294,33 @@ impl Unifier {
         )
     }
     pub fn are_unified(&mut self, a: MessageId, b: MessageId) -> bool {
-        // TODO: Should this be recursive?
+        use self::Message::*;
+
         if self.table.unioned(a, b) {
             return true;
         }
 
-        // println!(
-        //     "Are unified: {:?} with {:?}",
-        //     self.resolve_full(a),
-        //     self.resolve_full(b)
-        // );
-
-        false
+        match (self.probe_value(a), self.probe_value(b)) {
+            (Composition(f, xs), Composition(g, ys)) => {
+                xs.len() == ys.len()
+                    && match (f, g) {
+                        (Func::User(f), Func::User(g)) => self.are_unified(f, g),
+                        (f, g) => f == g,
+                    }
+                    && xs
+                        .iter()
+                        .zip_eq(ys.iter())
+                        .all(|(&x, &y)| self.are_unified(x, y))
+            }
+            (Tuple(xs), Tuple(ys)) => {
+                xs.len() == ys.len()
+                    && xs
+                        .iter()
+                        .zip_eq(ys.iter())
+                        .all(|(&x, &y)| self.are_unified(x, y))
+            }
+            (x, y) => x == y,
+        }
     }
     // pub fn try_unify(&mut self, a: MessageId, b: MessageId) -> Result<(), ()> {
     //     // TODO: Should this be recursive?
