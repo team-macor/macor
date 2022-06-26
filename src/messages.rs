@@ -8,6 +8,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use macor_parse::ast::Ident;
 use smol_str::SmolStr;
+use yansi::Paint;
 
 #[derive(Clone, Eq)]
 pub struct ConstantId(u32, pub Option<SmolStr>);
@@ -79,18 +80,53 @@ pub struct FullMessage(pub Message<FullMessage>);
 impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Intruder => write!(f, "i"),
-            Self::Variable(arg0, kind) => {
+            Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
+            Self::Variable(arg0, Kind::Actor) => {
                 if let Some(k) = arg0 {
-                    write!(f, "{kind:?}({})", k)
+                    write!(f, "{}", Paint::cyan(k).underline())
                 } else {
-                    write!(f, "{kind:?}")
+                    write!(f, "{}", Paint::cyan("Actor").underline())
                 }
             }
-            Self::Constant(c, kind) => c.fmt(f),
+            Self::Variable(arg0, Kind::Other) => {
+                if let Some(k) = arg0 {
+                    write!(f, "{}", Paint::cyan(k))
+                } else {
+                    write!(f, "{}", Paint::cyan("Other"))
+                }
+            }
+            Self::Constant(c, kind) => match kind {
+                Kind::Actor => Paint::red(c).underline().fmt(f),
+                Kind::Other => Paint::red(c).fmt(f),
+            },
+            Self::Composition(Func::AsymEnc, args) => {
+                let (msg, key) = (&args[0], &args[1]);
+                write!(
+                    f,
+                    "{l} {msg:?} {r}\x1b[00m{key:?}",
+                    l = Paint::magenta("{"),
+                    r = Paint::magenta("}"),
+                )
+            }
+            Self::Composition(Func::SymEnc, args) => {
+                let (msg, key) = (&args[0], &args[1]);
+                write!(
+                    f,
+                    "{l} {msg:?} {r}\x1b[00m{key:?}",
+                    l = Paint::yellow("{|"),
+                    r = Paint::yellow("|}"),
+                )
+            }
             Self::Composition(fun, args) => {
                 if let Func::User(x) = fun {
-                    write!(f, "{:?}({:?})", x, args.iter().format(", "))
+                    write!(
+                        f,
+                        "{:?}{l}{:?}{r}",
+                        Paint::red(x).italic(),
+                        args.iter().format(", "),
+                        l = Paint::red("(").dimmed().italic(),
+                        r = Paint::red(")").dimmed().italic(),
+                    )
                 } else {
                     write!(f, "{:?}({:?})", fun, args.iter().format(", "))
                 }
