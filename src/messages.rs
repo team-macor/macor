@@ -10,36 +10,76 @@ use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 use yansi::Paint;
 
-#[derive(Clone, Eq)]
-pub struct ConstantId(u32, pub Option<SmolStr>);
+#[derive(Clone, Default)]
+pub struct Hint(Option<SmolStr>);
 
-impl std::hash::Hash for ConstantId {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
+impl Hint {
+    pub fn none() -> Self {
+        Hint(None)
+    }
+    pub fn unwrap(self) -> SmolStr {
+        self.0.unwrap()
+    }
+    fn join(&self, other: &Self) -> Self {
+        match (&self.0, &other.0) {
+            (None, None) => Hint(None),
+            (None, x @ Some(_)) | (x @ Some(_), None) | (x @ Some(_), Some(_)) => Hint(x.clone()),
+        }
     }
 }
 
-impl PartialOrd for ConstantId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(&other.0)
+impl<S> From<Option<S>> for Hint
+where
+    S: Into<SmolStr>,
+{
+    fn from(x: Option<S>) -> Self {
+        Hint(x.map(|s| s.into()))
     }
 }
 
-impl Ord for ConstantId {
+impl std::ops::Deref for Hint {
+    type Target = Option<SmolStr>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::hash::Hash for Hint {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+impl Ord for Hint {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
+impl PartialOrd for Hint {
+    fn partial_cmp(&self, _: &Self) -> Option<std::cmp::Ordering> {
+        Some(std::cmp::Ordering::Equal)
+    }
+}
+impl Eq for Hint {}
+impl PartialEq for Hint {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
 
-impl PartialEq for ConstantId {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub struct ConstantId(u32, pub Hint);
+
+impl ConstantId {
+    pub fn new(i: u32) -> Self {
+        ConstantId(i, Hint::default())
+    }
+    pub fn hint(&self, hint: impl Into<SmolStr>) -> Self {
+        ConstantId(self.0, Hint(Some(hint.into())))
     }
 }
 
 impl std::fmt::Debug for ConstantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = &self.1 {
+        if let Some(name) = self.1.as_deref() {
             write!(f, "!{}[{}]", name, self.0)
         } else {
             write!(f, "![{}]", self.0)
@@ -58,7 +98,7 @@ pub enum Kind {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Message<M> {
     Intruder,
-    Variable(Option<SmolStr>, Kind),
+    Variable(Hint, Kind),
     Constant(ConstantId, Kind),
     Composition(Func<M>, Vec<M>),
     Tuple(Vec<M>),
@@ -82,14 +122,14 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
         match self {
             Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
             Self::Variable(arg0, Kind::Actor) => {
-                if let Some(k) = arg0 {
+                if let Some(k) = arg0.as_deref() {
                     write!(f, "{}", Paint::cyan(k).underline())
                 } else {
                     write!(f, "{}", Paint::cyan("Actor").underline())
                 }
             }
             Self::Variable(arg0, Kind::Other) => {
-                if let Some(k) = arg0 {
+                if let Some(k) = arg0.as_deref() {
                     write!(f, "{}", Paint::cyan(k))
                 } else {
                     write!(f, "{}", Paint::cyan("Other"))
@@ -151,7 +191,7 @@ impl UnifyValue for Message<MessageId> {
         Ok(match (l, r) {
             (Variable(l, lk), Variable(r, rk)) => {
                 if lk == rk {
-                    Variable(l.clone().or_else(|| r.clone()), *lk)
+                    Variable(l.join(r), *lk)
                 } else {
                     return Err(());
                 }
@@ -367,177 +407,171 @@ impl Unifier {
     }
 }
 
-#[test]
-fn very_basic_unification() -> Result<(), ()> {
-    let mut unifier = Unifier::default();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let a = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
-    let b = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    impl Unifier {
+        fn constant(&mut self, i: u32) -> MessageId {
+            self.table
+                .new_key(Message::Constant(ConstantId(i, Hint::none()), Kind::Other))
+        }
+        fn variable(&mut self) -> MessageId {
+            self.table
+                .new_key(Message::Variable(Hint::none(), Kind::Other))
+        }
+    }
 
-    unifier.unify(a, b)?;
+    #[test]
+    fn very_basic_unification() -> Result<(), ()> {
+        let mut unifier = Unifier::default();
 
-    assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
-    assert_eq!(
-        unifier.table.probe_value(b),
-        Message::Constant(ConstantId(0, None), Kind::Other)
-    );
+        let a = unifier.constant(0);
+        let b = unifier.variable();
 
-    Ok(())
-}
+        unifier.unify(a, b)?;
 
-#[test]
-fn less_basic_unification() -> Result<(), ()> {
-    let mut unifier = Unifier::default();
+        assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
+        assert_eq!(
+            unifier.table.probe_value(b),
+            Message::Constant(ConstantId(0, Hint::none()), Kind::Other)
+        );
 
-    let x = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
-    let y = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
+        Ok(())
+    }
 
-    let y_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
-    let x_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    #[test]
+    fn less_basic_unification() -> Result<(), ()> {
+        let mut unifier = Unifier::default();
 
-    let a = unifier.table.new_key(Message::Tuple(vec![x, y_free]));
-    let b = unifier.table.new_key(Message::Tuple(vec![x_free, y]));
+        let x = unifier.constant(0);
+        let y = unifier.constant(1);
 
-    unifier.unify(a, b)?;
+        let y_free = unifier.variable();
+        let x_free = unifier.variable();
 
-    assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
-    assert_eq!(
-        unifier.resolve_full(a),
-        FullMessage(Message::Tuple(vec![
-            box FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
-            box FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
-        ]))
-    );
+        let a = unifier.table.new_key(Message::Tuple(vec![x, y_free]));
+        let b = unifier.table.new_key(Message::Tuple(vec![x_free, y]));
 
-    Ok(())
-}
+        unifier.unify(a, b)?;
 
-#[test]
-fn unify_simple_composition() -> Result<(), ()> {
-    let mut unifier = Unifier::default();
+        assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
+        assert_eq!(
+            unifier.resolve_full(a),
+            FullMessage(Message::Tuple(vec![
+                box FullMessage(Message::Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                box FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            ]))
+        );
 
-    let x = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
-    let y = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
+        Ok(())
+    }
 
-    let x_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
-    let y_free = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    #[test]
+    fn unify_simple_composition() -> Result<(), ()> {
+        let mut unifier = Unifier::default();
 
-    let a = unifier
-        .table
-        .new_key(Message::Composition(Func::Exp, vec![x, y_free]));
-    let b = unifier
-        .table
-        .new_key(Message::Composition(Func::Exp, vec![x_free, y]));
+        let x = unifier.constant(0);
+        let y = unifier.constant(1);
 
-    unifier.unify(a, b)?;
+        let x_free = unifier.variable();
+        let y_free = unifier.variable();
 
-    assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
-    assert_eq!(
-        unifier.resolve_full(a),
-        FullMessage(Message::Composition(
-            Func::Exp,
-            vec![
-                box FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
-                box FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
-            ]
-        ))
-    );
+        let a = unifier
+            .table
+            .new_key(Message::Composition(Func::Exp, vec![x, y_free]));
+        let b = unifier
+            .table
+            .new_key(Message::Composition(Func::Exp, vec![x_free, y]));
 
-    Ok(())
-}
+        unifier.unify(a, b)?;
 
-#[test]
-fn non_unification() {
-    let mut unifier = Unifier::default();
+        assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
+        assert_eq!(
+            unifier.resolve_full(a),
+            FullMessage(Message::Composition(
+                Func::Exp,
+                vec![
+                    box FullMessage(Message::Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                    box FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+                ]
+            ))
+        );
 
-    let x = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(0, None), Kind::Other));
-    let y = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
+        Ok(())
+    }
 
-    let free = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    #[test]
+    fn non_unification() {
+        let mut unifier = Unifier::default();
 
-    let a = unifier.table.new_key(Message::Tuple(vec![y, free]));
-    let b = unifier.table.new_key(Message::Tuple(vec![x, y]));
+        let x = unifier.constant(0);
+        let y = unifier.constant(1);
 
-    assert_eq!(unifier.unify(a, b), Err(()));
-}
+        let free = unifier.variable();
 
-#[test]
-fn branching_unification() -> Result<(), ()> {
-    let mut unifier = Unifier::default();
+        let a = unifier.table.new_key(Message::Tuple(vec![y, free]));
+        let b = unifier.table.new_key(Message::Tuple(vec![x, y]));
 
-    let x = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
-    let y = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(2, None), Kind::Other));
+        assert_eq!(unifier.unify(a, b), Err(()));
+    }
 
-    let a = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    #[test]
+    fn branching_unification() -> Result<(), ()> {
+        let mut unifier = Unifier::default();
 
-    let mut world_1 = unifier.clone();
-    let mut world_2 = unifier.clone();
+        let x = unifier.constant(1);
+        let y = unifier.constant(2);
 
-    world_1.unify(a, x)?;
-    world_2.unify(a, y)?;
+        let a = unifier.variable();
 
-    assert_eq!(
-        world_1.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
-    );
-    assert_eq!(
-        world_2.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(2, None), Kind::Other))
-    );
+        let mut world_1 = unifier.clone();
+        let mut world_2 = unifier.clone();
 
-    Ok(())
-}
+        world_1.unify(a, x)?;
+        world_2.unify(a, y)?;
 
-#[test]
-fn rollback_unification() -> Result<(), ()> {
-    let mut unifier = Unifier::default();
+        assert_eq!(
+            world_1.resolve_full(a),
+            FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+        );
+        assert_eq!(
+            world_2.resolve_full(a),
+            FullMessage(Message::Constant(ConstantId(2, Hint::none()), Kind::Other))
+        );
 
-    let x = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(1, None), Kind::Other));
-    let y = unifier
-        .table
-        .new_key(Message::Constant(ConstantId(2, None), Kind::Other));
+        Ok(())
+    }
 
-    let a = unifier.table.new_key(Message::Variable(None, Kind::Other));
+    #[test]
+    fn rollback_unification() -> Result<(), ()> {
+        let mut unifier = Unifier::default();
 
-    let snap = unifier.table.snapshot();
+        let x = unifier.constant(1);
+        let y = unifier.constant(2);
 
-    unifier.unify(a, x)?;
+        let a = unifier.variable();
 
-    assert_eq!(
-        unifier.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
-    );
+        let snap = unifier.table.snapshot();
 
-    unifier.table.rollback_to(snap);
+        unifier.unify(a, x)?;
 
-    unifier.unify(a, y)?;
+        assert_eq!(
+            unifier.resolve_full(a),
+            FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+        );
 
-    assert_eq!(
-        unifier.resolve_full(a),
-        FullMessage(Message::Constant(ConstantId(2, None), Kind::Other))
-    );
+        unifier.table.rollback_to(snap);
 
-    Ok(())
+        unifier.unify(a, y)?;
+
+        assert_eq!(
+            unifier.resolve_full(a),
+            FullMessage(Message::Constant(ConstantId(2, Hint::none()), Kind::Other))
+        );
+
+        Ok(())
+    }
 }
 
 // Numbers: NA
@@ -621,10 +655,8 @@ impl<'a> Converter<'a> {
                 .global_actor_table
                 .entry(agent_to_get.clone())
                 .or_insert_with(|| {
-                    let cid = ConstantId(
-                        self.mappings.next_constant,
-                        Some(agent_to_get.0.clone().into()),
-                    );
+                    let cid =
+                        ConstantId::new(self.mappings.next_constant).hint(agent_to_get.0.clone());
                     self.mappings.next_constant += 1;
                     self.unifier
                         .table
@@ -645,26 +677,25 @@ impl<'a> Converter<'a> {
                 .entry((ctx.clone(), agent_to_get.0.clone().into()))
                 .or_insert_with(|| {
                     if agent_to_get.0.is_constant() {
-                        let cid = ConstantId(
-                            self.mappings.next_constant,
-                            Some(agent_to_get.0.clone().into()),
-                        );
+                        let cid = ConstantId::new(self.mappings.next_constant)
+                            .hint(agent_to_get.0.clone());
                         self.mappings.next_constant += 1;
                         self.unifier
                             .table
                             .new_key(Message::Constant(cid, Kind::Actor))
                     } else if agent_to_get == agent && AGENTS_FIX_TO_THEMSELVES {
-                        let cid = ConstantId(
-                            self.mappings.next_constant,
-                            Some(format!("{:?}_{:?}", agent_to_get.0.clone(), session_id.0).into()),
-                        );
+                        let cid = ConstantId::new(self.mappings.next_constant).hint(format!(
+                            "{:?}_{:?}",
+                            agent_to_get.0.clone(),
+                            session_id.0
+                        ));
                         self.mappings.next_constant += 1;
                         self.unifier
                             .table
                             .new_key(Message::Constant(cid, Kind::Actor))
                     } else {
                         self.unifier.table.new_key(Message::Variable(
-                            Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0).into()),
+                            Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0)).into(),
                             Kind::Actor,
                         ))
                     }
@@ -678,10 +709,8 @@ impl<'a> Converter<'a> {
                 .func_table
                 .entry(func.clone())
                 .or_insert_with(|| {
-                    let cid = ConstantId(
-                        self.mappings.next_constant,
-                        Some(format!("{:?}", func).into()),
-                    );
+                    let cid =
+                        ConstantId::new(self.mappings.next_constant).hint(format!("{:?}", func));
                     self.mappings.next_constant += 1;
                     self.unifier
                         .table
@@ -704,7 +733,7 @@ impl<'a> Converter<'a> {
             .global_constant_table
             .entry(constant_name.into())
             .or_insert_with(|| {
-                let cid = ConstantId(self.mappings.next_constant, Some(constant_name.into()));
+                let cid = ConstantId::new(self.mappings.next_constant).hint(constant_name);
                 self.mappings.next_constant += 1;
                 self.unifier
                     .table
@@ -726,10 +755,8 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| match for_who {
                 ForWho::Intruder(_) => todo!(),
                 ForWho::Actor(session_id, agent) => {
-                    let cid = ConstantId(
-                        self.mappings.next_constant,
-                        Some(format!("{}@{}:{}", &agent.0, session_id.0, constant_name).into()),
-                    );
+                    let cid = ConstantId::new(self.mappings.next_constant)
+                        .hint(format!("{}@{}:{}", &agent.0, session_id.0, constant_name));
                     self.mappings.next_constant += 1;
                     self.unifier
                         .table
@@ -752,7 +779,7 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| match for_who {
                 ForWho::Intruder(_) => todo!(),
                 ForWho::Actor(session_id, agent) => self.unifier.table.new_key(Message::Variable(
-                    Some(format!("{}@{}:{}", agent.0, session_id.0, variable_name).into()),
+                    Some(format!("{}@{}:{}", agent.0, session_id.0, variable_name)).into(),
                     Kind::Other,
                 )),
             })
