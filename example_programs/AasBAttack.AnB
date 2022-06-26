@@ -4,12 +4,12 @@ Types: Agent A,B,s;
        Function data,pw,key,data
 
 Knowledge:
-  A: A,B,s,pw(A,s),key;
+  A: A,B,s,pw(A,s),key(A);
   B: A,B,s,pw(B,s);
   s: A,B,s,data,pw(A,s)
 
 Actions:
-  A->s: { pw(A,s) }key
+  A->s: {| pw(A,s) |}key(A)
   s->B: data
   B->s: pw(B,s)
 
