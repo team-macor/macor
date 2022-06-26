@@ -1,29 +1,29 @@
 use crate::{
-    protocol::{Constant, Func, Message},
+    protocol::{Constant, Func, Term},
     typing::{Stage, TypedStage, UntypedStage},
 };
 use macor_parse::ast;
 
 #[derive(Eq, Debug, Clone, PartialOrd, Ord, Hash, PartialEq)]
-pub struct Knowledge<S: Stage = TypedStage>(pub Vec<Message<S>>);
+pub struct Knowledge<S: Stage = TypedStage>(pub Vec<Term<S>>);
 
 impl Knowledge<TypedStage> {
-    pub fn new(mut msgs: Vec<Message<TypedStage>>) -> Self {
-        msgs.sort_unstable();
-        msgs.dedup();
+    pub fn new(mut terms: Vec<Term<TypedStage>>) -> Self {
+        terms.sort_unstable();
+        terms.dedup();
 
-        let mut k = Knowledge(msgs);
+        let mut k = Knowledge(terms);
 
         augment_knowledge(&mut k);
 
         k
     }
-    pub fn iter(&self) -> impl Iterator<Item = &Message<TypedStage>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Term<TypedStage>> {
         self.0.iter()
     }
 
-    pub fn augment_with(&mut self, msg: Message<TypedStage>) {
-        self.0.push(msg);
+    pub fn augment_with(&mut self, term: Term<TypedStage>) {
+        self.0.push(term);
         self.0.sort_unstable();
         self.0.dedup();
 
@@ -36,32 +36,32 @@ impl FromIterator<Knowledge<TypedStage>> for Knowledge<TypedStage> {
         Knowledge::new(iter.into_iter().flat_map(|x| x.0).collect())
     }
 }
-impl FromIterator<Message<TypedStage>> for Knowledge<TypedStage> {
-    fn from_iter<T: IntoIterator<Item = Message<TypedStage>>>(iter: T) -> Self {
+impl FromIterator<Term<TypedStage>> for Knowledge<TypedStage> {
+    fn from_iter<T: IntoIterator<Item = Term<TypedStage>>>(iter: T) -> Self {
         Knowledge::new(iter.into_iter().collect())
     }
 }
 
-impl<'a> From<&[ast::Message<&'a str>]> for Knowledge<UntypedStage<'a>> {
-    fn from(knowledge: &[ast::Message<&'a str>]) -> Self {
-        Self(knowledge.iter().cloned().map(Message::from).collect())
+impl<'a> From<&[ast::Term<&'a str>]> for Knowledge<UntypedStage<'a>> {
+    fn from(knowledge: &[ast::Term<&'a str>]) -> Self {
+        Self(knowledge.iter().cloned().map(Term::from).collect())
     }
 }
-impl<'a> From<Vec<ast::Message<&'a str>>> for Knowledge<UntypedStage<'a>> {
-    fn from(knowledge: Vec<ast::Message<&'a str>>) -> Self {
-        Self(knowledge.into_iter().map(Message::from).collect())
+impl<'a> From<Vec<ast::Term<&'a str>>> for Knowledge<UntypedStage<'a>> {
+    fn from(knowledge: Vec<ast::Term<&'a str>>) -> Self {
+        Self(knowledge.into_iter().map(Term::from).collect())
     }
 }
 
-pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>) -> bool {
+pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Term<TypedStage>) -> bool {
     let mut stack = vec![goal];
-    while let Some(message) = stack.pop() {
-        if knowledge.0.contains(message) {
+    while let Some(term) = stack.pop() {
+        if knowledge.0.contains(term) {
             continue;
         }
 
-        match message {
-            Message::Composition { func, args } => {
+        match term {
+            Term::Composition { func, args } => {
                 if let Func::Inv = func {
                     return false;
                 }
@@ -69,7 +69,7 @@ pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>)
                 if !func.is_public()
                     && !knowledge
                         .0
-                        .contains(&Message::Constant(Constant::Function(func.clone())))
+                        .contains(&Term::Constant(Constant::Function(func.clone())))
                 {
                     return false;
                 }
@@ -78,7 +78,7 @@ pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>)
                     stack.push(a);
                 }
             }
-            Message::Tuple(ts) => {
+            Term::Tuple(ts) => {
                 for a in ts {
                     stack.push(a);
                 }
@@ -91,11 +91,11 @@ pub fn can_derive(knowledge: &Knowledge<TypedStage>, goal: &Message<TypedStage>)
 }
 
 pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
-    let mut new_messages: Vec<Message> = Vec::new();
+    let mut new_terms: Vec<Term> = Vec::new();
     loop {
-        for message in knowledge.iter() {
-            match message {
-                Message::Composition {
+        for term in knowledge.iter() {
+            match term {
+                Term::Composition {
                     func: Func::SymEnc,
                     args,
                 } => {
@@ -103,59 +103,59 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
                         panic!("arguments for symmetric encrypt function must only contain 2 arguments");
                     }
 
-                    let (message, key) = (&args[0], &args[1]);
+                    let (term, key) = (&args[0], &args[1]);
 
                     if can_derive(knowledge, key) {
-                        new_messages.push(message.clone());
+                        new_terms.push(term.clone());
                     }
                 }
-                Message::Composition {
+                Term::Composition {
                     func: Func::AsymEnc,
                     args,
                 } => {
                     if args.len() != 2 {
                         panic!("arguments for asymmetric encrypt function must only contain 2 arguments");
                     }
-                    let (message, key) = (&args[0], &args[1]);
+                    let (term, key) = (&args[0], &args[1]);
 
-                    if let Message::Composition {
+                    if let Term::Composition {
                         func: Func::Inv,
                         args: _,
                     } = key
                     {
-                        new_messages.push(message.clone());
+                        new_terms.push(term.clone());
                     }
 
                     if can_derive(
                         knowledge,
-                        &Message::Composition {
+                        &Term::Composition {
                             func: Func::Inv,
                             args: vec![key.clone()],
                         },
                     ) {
-                        new_messages.push(message.clone());
+                        new_terms.push(term.clone());
                     }
                 }
-                Message::Tuple(messages) => {
-                    for m in messages {
-                        new_messages.push(m.clone());
+                Term::Tuple(terms) => {
+                    for m in terms {
+                        new_terms.push(m.clone());
                     }
                 }
                 _ => {}
             }
         }
 
-        new_messages.retain(|message| !knowledge.0.contains(message));
+        new_terms.retain(|term| !knowledge.0.contains(term));
 
-        if new_messages.is_empty() {
-            knowledge.0.retain(|m| !matches!(m, Message::Tuple(_)));
+        if new_terms.is_empty() {
+            knowledge.0.retain(|m| !matches!(m, Term::Tuple(_)));
             knowledge.0.sort_unstable();
             knowledge.0.dedup();
             return;
         }
 
-        knowledge.0.append(&mut new_messages);
-        assert_eq!(new_messages.len(), 0);
+        knowledge.0.append(&mut new_terms);
+        assert_eq!(new_terms.len(), 0);
     }
 }
 
@@ -163,14 +163,14 @@ pub fn augment_knowledge(knowledge: &mut Knowledge<TypedStage>) {
 mod tests {
     use super::*;
     use crate::typing::{Type, TypingContext, TypingError, UntypedStage};
-    use macor_parse::{parse_message, parse_messages};
+    use macor_parse::{parse_term, parse_terms};
 
-    fn message(ctx: &mut TypingContext, src: &str) -> Message<TypedStage> {
-        let x: Message<UntypedStage> = parse_message(src).unwrap().into();
+    fn term(ctx: &mut TypingContext, src: &str) -> Term<TypedStage> {
+        let x: Term<UntypedStage> = parse_term(src).unwrap().into();
         x.to_typed(ctx)
     }
     fn knowledge(ctx: &mut TypingContext, src: &str) -> Knowledge<TypedStage> {
-        let x: Knowledge<UntypedStage> = parse_messages(src).unwrap().into();
+        let x: Knowledge<UntypedStage> = parse_terms(src).unwrap().into();
         x.to_typed(ctx)
     }
 
@@ -244,7 +244,7 @@ mod tests {
             .functions(["k1", "k2", "k3"])
             .build();
 
-        let goal = message(&mut ctx, "h(k1, k2)");
+        let goal = term(&mut ctx, "h(k1, k2)");
 
         let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,k2), {|n2|}k3, h"); // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
 
@@ -263,7 +263,7 @@ mod tests {
             .functions(["k1", "k2", "k3"])
             .build();
 
-        let goal = message(&mut ctx, "h(k1, k3)");
+        let goal = term(&mut ctx, "h(k1, k3)");
 
         let knowledge = knowledge(&mut ctx, "k1, k2, {|n1, k3|}h(k1,n2), {|n2|}k3, h");
         // {k1, k2, {|<n1, k3>|}h(k1,k2), {|n2|}k3 }
@@ -280,7 +280,7 @@ mod tests {
         */
         let mut ctx = init_ctx().function("f").functions(["k1", "k2"]).build();
 
-        let goal = message(&mut ctx, "f(k1, k2)");
+        let goal = term(&mut ctx, "f(k1, k2)");
 
         let knowledge = knowledge(&mut ctx, "k1, k2");
 

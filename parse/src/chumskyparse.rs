@@ -1,4 +1,4 @@
-use crate::ast::{Action, Document, Goal, Ident, Knowledge, Message, TypesKey, Where};
+use crate::ast::{Action, Document, Goal, Ident, Knowledge, Term, TypesKey, Where};
 use chumsky::{prelude::*, Stream};
 
 type Span = std::ops::Range<usize>;
@@ -101,48 +101,48 @@ pub enum Token {
     Neq,
 }
 
-fn messages_parser() -> impl Parser<Token, Vec<Message<String>>, Error = Simple<Token>> + Clone {
-    message_parser().separated_by(just(Token::Comma))
+fn terms_parser() -> impl Parser<Token, Vec<Term<String>>, Error = Simple<Token>> + Clone {
+    term_parser().separated_by(just(Token::Comma))
 }
 
-fn message_parser() -> impl Parser<Token, Message<String>, Error = Simple<Token>> + Clone {
-    recursive(|msg| {
+fn term_parser() -> impl Parser<Token, Term<String>, Error = Simple<Token>> + Clone {
+    recursive(|term| {
         let fun = ident_parser()
             .then_ignore(just(Token::LParen))
-            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then(term.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RParen))
-            .map(|(func, args)| Message::Fun(func, args));
-        let var = ident_parser().map(Message::Var);
+            .map(|(func, args)| Term::Fun(func, args));
+        let var = ident_parser().map(Term::Var);
         let sym = just(Token::LSym)
-            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then(term.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RSym))
-            .then(msg.clone())
-            .map(|((_, msgs), key)| Message::SymEnc(msgs, Box::new(key)));
+            .then(term.clone())
+            .map(|((_, terms), key)| Term::SymEnc(terms, Box::new(key)));
         let sym_par = just(Token::LSym)
-            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then(term.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RSym))
             .then_ignore(just(Token::LParen))
-            .then(msg.clone())
+            .then(term.clone())
             .then_ignore(just(Token::RParen))
-            .map(|((_, msgs), key)| Message::SymEnc(msgs, Box::new(key)));
+            .map(|((_, terms), key)| Term::SymEnc(terms, Box::new(key)));
         let asym = just(Token::LCurly)
-            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then(term.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RCurly))
-            .then(msg.clone())
-            .map(|((_, msgs), key)| Message::AsymEnc(msgs, Box::new(key)));
+            .then(term.clone())
+            .map(|((_, terms), key)| Term::AsymEnc(terms, Box::new(key)));
         let asym_par = just(Token::LCurly)
-            .then(msg.clone().separated_by(just(Token::Comma)))
+            .then(term.clone().separated_by(just(Token::Comma)))
             .then_ignore(just(Token::RCurly))
             .then_ignore(just(Token::LParen))
-            .then(msg.clone())
+            .then(term.clone())
             .then_ignore(just(Token::RParen))
-            .map(|((_, msgs), key)| Message::AsymEnc(msgs, Box::new(key)));
+            .map(|((_, terms), key)| Term::AsymEnc(terms, Box::new(key)));
         fun.or(sym)
             .or(sym_par)
             .or(asym)
             .or(asym_par)
             .or(var)
-            .or(msg.delimited_by(just(Token::LParen), just(Token::RParen)))
+            .or(term.delimited_by(just(Token::LParen), just(Token::RParen)))
     })
 }
 
@@ -191,7 +191,7 @@ pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<
         .then(
             ident_parser()
                 .then_ignore(just(Token::Colon))
-                .then(messages_parser())
+                .then(terms_parser())
                 .separated_by(just(Token::Semicolon)),
         )
         .then(where_parse.or_not())
@@ -204,8 +204,8 @@ pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<
         .then_ignore(just(Token::Arrow))
         .then(ident_parser())
         .then_ignore(just(Token::Colon))
-        .then(messages_parser())
-        .map(|((from, to), msgs)| Action { from, to, msgs });
+        .then(terms_parser())
+        .map(|((from, to), terms)| Action { from, to, terms });
 
     let actions = just(Token::Actions)
         .then(just(Token::Colon))
@@ -218,21 +218,21 @@ pub fn document_parser() -> impl Parser<Token, Document<String>, Error = Simple<
         .then_ignore(just(Token::Authenticates))
         .then(ident_parser())
         .then_ignore(just(Token::On))
-        .then(messages_parser())
-        .map(|(((a, weakly), b), msgs)| Goal::Authenticates {
+        .then(terms_parser())
+        .map(|(((a, weakly), b), terms)| Goal::Authenticates {
             a,
             b,
-            msgs,
+            terms,
             weakly: weakly.is_some(),
         });
 
-    let secret_between_goal = message_parser()
+    let secret_between_goal = term_parser()
         .separated_by(just(Token::Comma))
         .then(just(Token::Guessable).or_not())
         .then_ignore(just(Token::Secret).then_ignore(just(Token::Between)))
         .then(ident_parser().separated_by(just(Token::Comma)))
-        .map(|((msgs, guessable), agents)| Goal::SecretBetween {
-            msgs,
+        .map(|((terms, guessable), agents)| Goal::SecretBetween {
+            terms,
             agents,
             guessable: guessable.is_some(),
         });
@@ -304,7 +304,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_chomsky_message() {
+    fn test_chomsky_term() {
         let src = include_str!("../../example_programs/KeyEx1.AnB");
         let (tokens, errs) = lexer().parse_recovery(src);
 

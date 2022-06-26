@@ -5,7 +5,7 @@ use miette::SourceSpan;
 
 use crate::{
     dolev_yao_old::Knowledge,
-    protocol::{AgentName, Constant, Func, Message, Variable},
+    protocol::{AgentName, Constant, Func, Term, Variable},
 };
 
 pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash {
@@ -108,19 +108,19 @@ impl TypingContext {
     }
 }
 
-impl Message<UntypedStage<'_>> {
-    pub fn to_typed(&self, ctx: &mut TypingContext) -> Message {
+impl Term<UntypedStage<'_>> {
+    pub fn to_typed(&self, ctx: &mut TypingContext) -> Term {
         match self {
-            Message::Variable(name) => {
+            Term::Variable(name) => {
                 // NOTE: Built-ins
                 match name.as_str() {
                     "inv" => {
                         // TODO
-                        return Message::Constant(Constant::Function(Func::Inv));
+                        return Term::Constant(Constant::Function(Func::Inv));
                     }
                     "exp" => {
                         // TODO
-                        return Message::Constant(Constant::Function(Func::Exp));
+                        return Term::Constant(Constant::Function(Func::Exp));
                     }
                     _ => {}
                 }
@@ -131,9 +131,9 @@ impl Message<UntypedStage<'_>> {
                     match ty {
                         Type::Agent => {
                             if is_constant {
-                                Message::Constant(Constant::Agent(AgentName(name.convert())))
+                                Term::Constant(Constant::Agent(AgentName(name.convert())))
                             } else {
-                                Message::Variable(Variable::Agent(AgentName(name.convert())))
+                                Term::Variable(Variable::Agent(AgentName(name.convert())))
                             }
                         }
                         Type::SymmetricKey => {
@@ -144,7 +144,7 @@ impl Message<UntypedStage<'_>> {
                                     err_span: name.span(),
                                 });
                             }
-                            Message::Variable(Variable::SymmetricKey(name.convert()))
+                            Term::Variable(Variable::SymmetricKey(name.convert()))
                         }
                         Type::Number => {
                             if name.is_constant() {
@@ -154,7 +154,7 @@ impl Message<UntypedStage<'_>> {
                                     err_span: name.span(),
                                 });
                             }
-                            Message::Variable(Variable::Number(name.convert()))
+                            Term::Variable(Variable::Number(name.convert()))
                         }
                         Type::Function => {
                             if name.is_variable() {
@@ -164,7 +164,7 @@ impl Message<UntypedStage<'_>> {
                                     err_span: name.span(),
                                 });
                             }
-                            Message::Constant(Constant::Function(Func::User(name.convert())))
+                            Term::Constant(Constant::Function(Func::User(name.convert())))
                         }
                     }
                 } else {
@@ -174,19 +174,19 @@ impl Message<UntypedStage<'_>> {
                         name: name.to_string(),
                         err_span: name.span(),
                     });
-                    Message::Variable(Variable::Agent(AgentName(name.convert())))
+                    Term::Variable(Variable::Agent(AgentName(name.convert())))
                 }
             }
-            Message::Constant(_) => unreachable!("Constant in untyped contains ! type"),
+            Term::Constant(_) => unreachable!("Constant in untyped contains ! type"),
             // TODO: Check that func is defined as a function
             // TODO: Check that it is implemented correctly :)
-            Message::Composition { func, args } => match func {
+            Term::Composition { func, args } => match func {
                 Func::SymEnc | Func::AsymEnc | Func::Exp => {
                     if args.len() != 2 {
                         todo!()
                     }
 
-                    Message::Composition {
+                    Term::Composition {
                         func: func.clone(),
                         args: args.iter().map(|x| x.to_typed(ctx)).collect(),
                     }
@@ -196,7 +196,7 @@ impl Message<UntypedStage<'_>> {
                         todo!("{args:?}")
                     }
 
-                    Message::Composition {
+                    Term::Composition {
                         func: func.clone(),
                         args: args.iter().map(|x| x.to_typed(ctx)).collect(),
                     }
@@ -222,22 +222,21 @@ impl Message<UntypedStage<'_>> {
                         });
                     }
 
-                    Message::Composition {
+                    Term::Composition {
                         func: Func::User(name.clone()),
                         args: args.iter().map(|x| x.to_typed(ctx)).collect(),
                     }
                 }
             },
-            Message::Tuple(xs) => Message::Tuple(xs.iter().map(|x| x.to_typed(ctx)).collect()),
+            Term::Tuple(xs) => Term::Tuple(xs.iter().map(|x| x.to_typed(ctx)).collect()),
         }
     }
 }
 
 impl Knowledge<UntypedStage<'_>> {
     pub fn to_typed(&self, ctx: &mut TypingContext) -> Knowledge<TypedStage> {
-        let msgs: Vec<Message<TypedStage>> =
-            self.0.iter().map(|message| message.to_typed(ctx)).collect();
+        let terms: Vec<Term<TypedStage>> = self.0.iter().map(|term| term.to_typed(ctx)).collect();
 
-        Knowledge::<TypedStage>::new(msgs)
+        Knowledge::<TypedStage>::new(terms)
     }
 }

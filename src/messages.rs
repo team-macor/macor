@@ -87,7 +87,7 @@ impl std::fmt::Debug for ConstantId {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub struct MessageId(u32);
+pub struct TermId(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub enum Kind {
@@ -96,7 +96,7 @@ pub enum Kind {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Message<M> {
+pub enum Term<M> {
     Intruder,
     Variable(Hint, Kind),
     Constant(ConstantId, Kind),
@@ -104,20 +104,20 @@ pub enum Message<M> {
     Tuple(Vec<M>),
 }
 
-impl<M> Message<M> {
+impl<M> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
-            Message::Intruder => Kind::Agent,
-            Message::Variable(_, kind) | Message::Constant(_, kind) => *kind,
-            Message::Composition(_, _) | Message::Tuple(_) => Kind::Other,
+            Term::Intruder => Kind::Agent,
+            Term::Variable(_, kind) | Term::Constant(_, kind) => *kind,
+            Term::Composition(_, _) | Term::Tuple(_) => Kind::Other,
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FullMessage(pub Message<Box<FullMessage>>);
+pub struct FullTerm(pub Term<Box<FullTerm>>);
 
-impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
+impl<M: std::fmt::Debug> std::fmt::Debug for Term<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
@@ -140,19 +140,19 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
                 Kind::Other => Paint::red(c).fmt(f),
             },
             Self::Composition(Func::AsymEnc, args) => {
-                let (msg, key) = (&args[0], &args[1]);
+                let (term, key) = (&args[0], &args[1]);
                 write!(
                     f,
-                    "{l} {msg:?} {r}\x1b[00m{key:?}",
+                    "{l} {term:?} {r}\x1b[00m{key:?}",
                     l = Paint::magenta("{"),
                     r = Paint::magenta("}"),
                 )
             }
             Self::Composition(Func::SymEnc, args) => {
-                let (msg, key) = (&args[0], &args[1]);
+                let (term, key) = (&args[0], &args[1]);
                 write!(
                     f,
-                    "{l} {msg:?} {r}\x1b[00m{key:?}",
+                    "{l} {term:?} {r}\x1b[00m{key:?}",
                     l = Paint::yellow("{|"),
                     r = Paint::yellow("|}"),
                 )
@@ -176,17 +176,17 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
     }
 }
 
-impl std::fmt::Debug for FullMessage {
+impl std::fmt::Debug for FullTerm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl UnifyValue for Message<MessageId> {
+impl UnifyValue for Term<TermId> {
     type Error = ();
 
     fn unify_values(l: &Self, r: &Self) -> Result<Self, Self::Error> {
-        use self::Message::*;
+        use self::Term::*;
 
         Ok(match (l, r) {
             (Variable(l, lk), Variable(r, rk)) => {
@@ -236,44 +236,44 @@ impl UnifyValue for Message<MessageId> {
     }
 }
 
-impl UnifyKey for MessageId {
-    type Value = Message<MessageId>;
+impl UnifyKey for TermId {
+    type Value = Term<TermId>;
 
     fn index(&self) -> u32 {
         self.0
     }
 
     fn from_index(u: u32) -> Self {
-        MessageId(u)
+        TermId(u)
     }
 
     fn tag() -> &'static str {
-        "MessageId"
+        "TermId"
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct Unifier {
-    intruder: MessageId,
-    table: InPlaceUnificationTable<MessageId>,
+    intruder: TermId,
+    table: InPlaceUnificationTable<TermId>,
 }
 
 impl Default for Unifier {
     fn default() -> Self {
         let mut table = InPlaceUnificationTable::default();
-        let intruder = table.new_key(Message::Intruder);
+        let intruder = table.new_key(Term::Intruder);
         Self { intruder, table }
     }
 }
 
 impl Unifier {
-    pub fn intruder(&self) -> MessageId {
+    pub fn intruder(&self) -> TermId {
         self.intruder
     }
-    /// Recursively unifies the two messages and returns either of the passed
-    /// messages if they indeed do unify (since they are now equivalent), or
+    /// Recursively unifies the two terms and returns either of the passed
+    /// terms if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
-    pub fn unify(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
+    pub fn unify(&mut self, l: TermId, r: TermId) -> Result<TermId, ()> {
         let snap = self.table.snapshot();
         match self.unify_inner(l, r) {
             Ok(v) => {
@@ -286,8 +286,8 @@ impl Unifier {
             }
         }
     }
-    fn unify_inner(&mut self, l: MessageId, r: MessageId) -> Result<MessageId, ()> {
-        use self::Message::*;
+    fn unify_inner(&mut self, l: TermId, r: TermId) -> Result<TermId, ()> {
+        use self::Term::*;
 
         Ok(
             match (self.table.probe_value(l), self.table.probe_value(r)) {
@@ -333,8 +333,8 @@ impl Unifier {
             },
         )
     }
-    pub fn are_unified(&mut self, a: MessageId, b: MessageId) -> bool {
-        use self::Message::*;
+    pub fn are_unified(&mut self, a: TermId, b: TermId) -> bool {
+        use self::Term::*;
 
         if self.table.unioned(a, b) {
             return true;
@@ -362,16 +362,16 @@ impl Unifier {
             (x, y) => x == y,
         }
     }
-    // pub fn try_unify(&mut self, a: MessageId, b: MessageId) -> Result<(), ()> {
+    // pub fn try_unify(&mut self, a: TermId, b: TermId) -> Result<(), ()> {
     //     // TODO: Should this be recursive?
     //     if self.table.unioned(a, b) {
     //         return Ok(());
     //     }
 
-    //     use self::Message::*;
+    //     use self::Term::*;
 
     //     match (self.probe_value(a), self.probe_value(b)) {
-    //         (Message::Agent(_))
+    //         (Term::Agent(_))
     //         (a, b) => todo!("{:?} {:?}", a, b),
     //     }
 
@@ -384,26 +384,26 @@ impl Unifier {
     //     false
     // }
 
-    pub fn probe_value(&mut self, id: MessageId) -> Message<MessageId> {
+    pub fn probe_value(&mut self, id: TermId) -> Term<TermId> {
         self.table.probe_value(id)
     }
 
-    pub fn resolve_full(&mut self, id: MessageId) -> FullMessage {
-        let msg = match self.table.probe_value(id) {
-            Message::Intruder => Message::Intruder,
-            Message::Variable(v, kind) => Message::Variable(v, kind),
-            Message::Constant(c, kind) => Message::Constant(c, kind),
-            Message::Composition(func, args) => Message::Composition(
+    pub fn resolve_full(&mut self, id: TermId) -> FullTerm {
+        let term = match self.table.probe_value(id) {
+            Term::Intruder => Term::Intruder,
+            Term::Variable(v, kind) => Term::Variable(v, kind),
+            Term::Constant(c, kind) => Term::Constant(c, kind),
+            Term::Composition(func, args) => Term::Composition(
                 func.map(|&id| box self.resolve_full(id)),
                 args.into_iter()
                     .map(|arg| box self.resolve_full(arg))
                     .collect(),
             ),
-            Message::Tuple(ts) => {
-                Message::Tuple(ts.into_iter().map(|t| box self.resolve_full(t)).collect())
+            Term::Tuple(ts) => {
+                Term::Tuple(ts.into_iter().map(|t| box self.resolve_full(t)).collect())
             }
         };
-        FullMessage(msg)
+        FullTerm(term)
     }
 }
 
@@ -412,13 +412,13 @@ mod tests {
     use super::*;
 
     impl Unifier {
-        fn constant(&mut self, i: u32) -> MessageId {
+        fn constant(&mut self, i: u32) -> TermId {
             self.table
-                .new_key(Message::Constant(ConstantId(i, Hint::none()), Kind::Other))
+                .new_key(Term::Constant(ConstantId(i, Hint::none()), Kind::Other))
         }
-        fn variable(&mut self) -> MessageId {
+        fn variable(&mut self) -> TermId {
             self.table
-                .new_key(Message::Variable(Hint::none(), Kind::Other))
+                .new_key(Term::Variable(Hint::none(), Kind::Other))
         }
     }
 
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
         assert_eq!(
             unifier.table.probe_value(b),
-            Message::Constant(ConstantId(0, Hint::none()), Kind::Other)
+            Term::Constant(ConstantId(0, Hint::none()), Kind::Other)
         );
 
         Ok(())
@@ -450,17 +450,17 @@ mod tests {
         let y_free = unifier.variable();
         let x_free = unifier.variable();
 
-        let a = unifier.table.new_key(Message::Tuple(vec![x, y_free]));
-        let b = unifier.table.new_key(Message::Tuple(vec![x_free, y]));
+        let a = unifier.table.new_key(Term::Tuple(vec![x, y_free]));
+        let b = unifier.table.new_key(Term::Tuple(vec![x_free, y]));
 
         unifier.unify(a, b)?;
 
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullMessage(Message::Tuple(vec![
-                box FullMessage(Message::Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                box FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Term::Tuple(vec![
+                box FullTerm(Term::Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                box FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
             ]))
         );
 
@@ -479,21 +479,21 @@ mod tests {
 
         let a = unifier
             .table
-            .new_key(Message::Composition(Func::Exp, vec![x, y_free]));
+            .new_key(Term::Composition(Func::Exp, vec![x, y_free]));
         let b = unifier
             .table
-            .new_key(Message::Composition(Func::Exp, vec![x_free, y]));
+            .new_key(Term::Composition(Func::Exp, vec![x_free, y]));
 
         unifier.unify(a, b)?;
 
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullMessage(Message::Composition(
+            FullTerm(Term::Composition(
                 Func::Exp,
                 vec![
-                    box FullMessage(Message::Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                    box FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+                    box FullTerm(Term::Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                    box FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
                 ]
             ))
         );
@@ -510,8 +510,8 @@ mod tests {
 
         let free = unifier.variable();
 
-        let a = unifier.table.new_key(Message::Tuple(vec![y, free]));
-        let b = unifier.table.new_key(Message::Tuple(vec![x, y]));
+        let a = unifier.table.new_key(Term::Tuple(vec![y, free]));
+        let b = unifier.table.new_key(Term::Tuple(vec![x, y]));
 
         assert_eq!(unifier.unify(a, b), Err(()));
     }
@@ -533,11 +533,11 @@ mod tests {
 
         assert_eq!(
             world_1.resolve_full(a),
-            FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
         );
         assert_eq!(
             world_2.resolve_full(a),
-            FullMessage(Message::Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Term::Constant(ConstantId(2, Hint::none()), Kind::Other))
         );
 
         Ok(())
@@ -558,7 +558,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullMessage(Message::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
         );
 
         unifier.table.rollback_to(snap);
@@ -567,7 +567,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullMessage(Message::Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Term::Constant(ConstantId(2, Hint::none()), Kind::Other))
         );
 
         Ok(())
@@ -588,7 +588,7 @@ mod tests {
 //              A already knows the value of NA, and thus can check its validity
 //
 // A->s: n1
-//              s needs to unify the expected message with the received:
+//              s needs to unify the expected term with the received:
 //              unify(n1, NA)
 
 // A->: NA_a (1)
@@ -621,12 +621,12 @@ pub struct Converter<'a> {
 #[derive(Debug, Clone)]
 pub struct Mappings {
     next_constant: u32,
-    global_agent_table: IndexMap<AgentName, MessageId>,
-    agent_table: IndexMap<(ForWho, SmallStr), MessageId>,
-    func_table: IndexMap<Func, MessageId>,
-    global_constant_table: IndexMap<SmallStr, MessageId>,
-    constant_table: IndexMap<VariableKey, MessageId>,
-    variable_table: IndexMap<VariableKey, MessageId>,
+    global_agent_table: IndexMap<AgentName, TermId>,
+    agent_table: IndexMap<(ForWho, SmallStr), TermId>,
+    func_table: IndexMap<Func, TermId>,
+    global_constant_table: IndexMap<SmallStr, TermId>,
+    constant_table: IndexMap<VariableKey, TermId>,
+    variable_table: IndexMap<VariableKey, TermId>,
 }
 
 impl Default for Mappings {
@@ -648,7 +648,7 @@ impl<'a> Converter<'a> {
         Self { unifier, mappings }
     }
 
-    pub fn get_agent(&mut self, ctx: &ForWho, agent_to_get: &protocol::AgentName) -> MessageId {
+    pub fn get_agent(&mut self, ctx: &ForWho, agent_to_get: &protocol::AgentName) -> TermId {
         if agent_to_get.0.is_constant() {
             return *self
                 .mappings
@@ -658,9 +658,7 @@ impl<'a> Converter<'a> {
                     let cid =
                         ConstantId::new(self.mappings.next_constant).hint(agent_to_get.0.clone());
                     self.mappings.next_constant += 1;
-                    self.unifier
-                        .table
-                        .new_key(Message::Constant(cid, Kind::Agent))
+                    self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
                 });
         }
 
@@ -680,9 +678,7 @@ impl<'a> Converter<'a> {
                         let cid = ConstantId::new(self.mappings.next_constant)
                             .hint(agent_to_get.0.clone());
                         self.mappings.next_constant += 1;
-                        self.unifier
-                            .table
-                            .new_key(Message::Constant(cid, Kind::Agent))
+                        self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
                     } else if agent_to_get == agent && AGENTS_FIX_TO_THEMSELVES {
                         let cid = ConstantId::new(self.mappings.next_constant).hint(format!(
                             "{:?}_{:?}",
@@ -690,11 +686,9 @@ impl<'a> Converter<'a> {
                             session_id.0
                         ));
                         self.mappings.next_constant += 1;
-                        self.unifier
-                            .table
-                            .new_key(Message::Constant(cid, Kind::Agent))
+                        self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
                     } else {
-                        self.unifier.table.new_key(Message::Variable(
+                        self.unifier.table.new_key(Term::Variable(
                             Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0)).into(),
                             Kind::Agent,
                         ))
@@ -702,7 +696,7 @@ impl<'a> Converter<'a> {
                 }),
         }
     }
-    pub fn get_function_constant(&mut self, func: Func) -> MessageId {
+    pub fn get_function_constant(&mut self, func: Func) -> TermId {
         match func {
             Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => *self
                 .mappings
@@ -712,22 +706,20 @@ impl<'a> Converter<'a> {
                     let cid =
                         ConstantId::new(self.mappings.next_constant).hint(format!("{:?}", func));
                     self.mappings.next_constant += 1;
-                    self.unifier
-                        .table
-                        .new_key(Message::Constant(cid, Kind::Other))
+                    self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
                 }),
-            Func::User(c) => self.register_global_constant_msg(c.as_str()),
+            Func::User(c) => self.register_global_constant_term(c.as_str()),
         }
     }
 
     pub fn register_global_constant(&mut self, constant_name: &str) -> ConstantId {
-        let msg = self.register_global_constant_msg(constant_name);
-        match self.unifier.table.probe_value(msg) {
-            Message::Constant(c, _) => c,
+        let term = self.register_global_constant_term(constant_name);
+        match self.unifier.table.probe_value(term) {
+            Term::Constant(c, _) => c,
             _ => unreachable!(),
         }
     }
-    pub fn register_global_constant_msg(&mut self, constant_name: &str) -> MessageId {
+    pub fn register_global_constant_term(&mut self, constant_name: &str) -> TermId {
         *self
             .mappings
             .global_constant_table
@@ -735,16 +727,14 @@ impl<'a> Converter<'a> {
             .or_insert_with(|| {
                 let cid = ConstantId::new(self.mappings.next_constant).hint(constant_name);
                 self.mappings.next_constant += 1;
-                self.unifier
-                    .table
-                    .new_key(Message::Constant(cid, Kind::Other))
+                self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
             })
     }
     pub fn register_constant(
         &mut self,
         for_who: &ForWho,
         constant_name: &Ident<SmallStr>,
-    ) -> MessageId {
+    ) -> TermId {
         *self
             .mappings
             .constant_table
@@ -758,9 +748,7 @@ impl<'a> Converter<'a> {
                     let cid = ConstantId::new(self.mappings.next_constant)
                         .hint(format!("{}@{}:{}", &agent.0, session_id.0, constant_name));
                     self.mappings.next_constant += 1;
-                    self.unifier
-                        .table
-                        .new_key(Message::Constant(cid, Kind::Other))
+                    self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
                 }
             })
     }
@@ -768,7 +756,7 @@ impl<'a> Converter<'a> {
         &mut self,
         for_who: &ForWho,
         variable_name: &Ident<SmallStr>,
-    ) -> MessageId {
+    ) -> TermId {
         *self
             .mappings
             .variable_table
@@ -778,7 +766,7 @@ impl<'a> Converter<'a> {
             })
             .or_insert_with(|| match for_who {
                 ForWho::Intruder(_) => todo!(),
-                ForWho::Agent(session_id, agent) => self.unifier.table.new_key(Message::Variable(
+                ForWho::Agent(session_id, agent) => self.unifier.table.new_key(Term::Variable(
                     Some(format!("{}@{}:{}", agent.0, session_id.0, variable_name)).into(),
                     Kind::Other,
                 )),
@@ -790,7 +778,7 @@ impl<'a> Converter<'a> {
         for_who: &ForWho,
         initiators: &IndexMap<protocol::Variable, protocol::AgentName>,
         var: &protocol::Variable,
-    ) -> MessageId {
+    ) -> TermId {
         match var {
             protocol::Variable::Agent(a) => self.get_agent(for_who, a),
             protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
@@ -808,87 +796,83 @@ impl<'a> Converter<'a> {
             }
         }
     }
-    pub fn register_typed_message(
+    pub fn register_typed_term(
         &mut self,
         for_who: &ForWho,
         initiations: &IndexMap<protocol::Variable, protocol::AgentName>,
-        msg: protocol::Message,
-    ) -> MessageId {
-        match msg {
-            protocol::Message::Variable(var) => {
+        term: protocol::Term,
+    ) -> TermId {
+        match term {
+            protocol::Term::Variable(var) => {
                 self.initiate_typed_variable(for_who, initiations, &var)
             }
-            protocol::Message::Constant(c) => match c {
+            protocol::Term::Constant(c) => match c {
                 protocol::Constant::Agent(a) => self.get_agent(for_who, &a),
                 protocol::Constant::Function(f) => self.get_function_constant(f),
                 protocol::Constant::Intruder => self.unifier.intruder(),
                 protocol::Constant::Nonce(_) => todo!(),
             },
-            protocol::Message::Composition { func, args } => {
-                let msg = Message::Composition(
+            protocol::Term::Composition { func, args } => {
+                let term = Term::Composition(
                     match func {
                         Func::SymEnc => Func::SymEnc,
                         Func::AsymEnc => Func::AsymEnc,
                         Func::Exp => Func::Exp,
                         Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant_msg(u.as_str())),
+                        Func::User(u) => Func::User(self.register_global_constant_term(u.as_str())),
                     },
                     args.into_iter()
-                        .map(|arg| self.register_typed_message(for_who, initiations, arg))
+                        .map(|arg| self.register_typed_term(for_who, initiations, arg))
                         .collect(),
                 );
-                self.unifier.table.new_key(msg)
+                self.unifier.table.new_key(term)
             }
-            protocol::Message::Tuple(ts) => {
-                let msg = Message::Tuple(
+            protocol::Term::Tuple(ts) => {
+                let term = Term::Tuple(
                     ts.into_iter()
-                        .map(|t| self.register_typed_message(for_who, initiations, t))
+                        .map(|t| self.register_typed_term(for_who, initiations, t))
                         .collect(),
                 );
-                self.unifier.table.new_key(msg)
+                self.unifier.table.new_key(term)
             }
         }
     }
-    pub fn register_ast_message(
+    pub fn register_ast_term(
         &mut self,
-        msg: protocol::Message<crate::typing::UntypedStage>,
-    ) -> MessageId {
-        match msg {
-            protocol::Message::Variable(v) => self.register_global_constant_msg(v.as_str()),
-            protocol::Message::Constant(_) => unreachable!(),
-            protocol::Message::Composition { func, args } => {
-                let msg = Message::Composition(
+        term: protocol::Term<crate::typing::UntypedStage>,
+    ) -> TermId {
+        match term {
+            protocol::Term::Variable(v) => self.register_global_constant_term(v.as_str()),
+            protocol::Term::Constant(_) => unreachable!(),
+            protocol::Term::Composition { func, args } => {
+                let term = Term::Composition(
                     match func {
                         Func::SymEnc => Func::SymEnc,
                         Func::AsymEnc => Func::AsymEnc,
                         Func::Exp => Func::Exp,
                         Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant_msg(u.as_str())),
+                        Func::User(u) => Func::User(self.register_global_constant_term(u.as_str())),
                     },
                     args.into_iter()
-                        .map(|t| self.register_ast_message(t))
+                        .map(|t| self.register_ast_term(t))
                         .collect(),
                 );
 
-                self.unifier.table.new_key(msg)
+                self.unifier.table.new_key(term)
             }
-            protocol::Message::Tuple(ts) => {
-                let msg = Message::Tuple(
-                    ts.into_iter()
-                        .map(|t| self.register_ast_message(t))
-                        .collect(),
-                );
-                self.unifier.table.new_key(msg)
+            protocol::Term::Tuple(ts) => {
+                let term = Term::Tuple(ts.into_iter().map(|t| self.register_ast_term(t)).collect());
+                self.unifier.table.new_key(term)
             }
         }
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Knowledge(pub Vec<MessageId>);
+pub struct Knowledge(pub Vec<TermId>);
 
 impl Knowledge {
-    pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullMessage> {
+    pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullTerm> {
         self.0.iter().map(|&id| unifier.resolve_full(id)).collect()
     }
 }
@@ -898,24 +882,24 @@ type SmallStr = SmolStr;
 #[derive(Debug, Clone)]
 pub struct Transaction {
     pub ast_node: protocol::PacketPattern,
-    pub sender: MessageId,
-    pub receiver: MessageId,
+    pub sender: TermId,
+    pub receiver: TermId,
     pub direction: Direction,
-    pub messages: Vec<MessageId>,
+    pub terms: Vec<TermId>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SessionAgent {
     pub name: Ident<SmallStr>,
-    pub agent_id: MessageId,
+    pub agent_id: TermId,
     pub initial_knowledge: Knowledge,
     pub strand: Vec<Transaction>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Secret {
-    pub between_agents: Vec<MessageId>,
-    pub msg: MessageId,
+    pub between_agents: Vec<TermId>,
+    pub term: TermId,
 }
 
 #[derive(Debug, Clone)]
@@ -936,16 +920,12 @@ impl Session {
                 let mut initial_knowledge: Vec<_> = agent
                     .initial_knowledge
                     .iter()
-                    .map(|msg| {
-                        converter.register_typed_message(
-                            &for_who,
-                            &protocol.initiations,
-                            msg.clone(),
-                        )
+                    .map(|term| {
+                        converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
                     })
                     .collect();
 
-                let initiates = agent.messages.iter().flat_map(|pattern| {
+                let initiates = agent.terms.iter().flat_map(|pattern| {
                     if pattern.direction == Direction::Outgoing {
                         pattern.initiates.clone()
                     } else {
@@ -957,7 +937,8 @@ impl Session {
                     converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
                 }));
 
-                initial_knowledge.sort_unstable_by_key(|msg| converter.unifier.resolve_full(*msg));
+                initial_knowledge
+                    .sort_unstable_by_key(|term| converter.unifier.resolve_full(*term));
                 initial_knowledge.dedup();
 
                 SessionAgent {
@@ -965,21 +946,21 @@ impl Session {
                     agent_id: converter.get_agent(&for_who, &agent.name),
                     initial_knowledge: Knowledge(initial_knowledge),
                     strand: agent
-                        .messages
+                        .terms
                         .iter()
                         .map(|pattern| Transaction {
                             ast_node: pattern.clone(),
                             sender: converter.get_agent(&for_who, &pattern.from),
                             receiver: converter.get_agent(&for_who, &pattern.to),
                             direction: pattern.direction,
-                            messages: pattern
+                            terms: pattern
                                 .packet
                                 .iter()
-                                .map(|msg| {
-                                    converter.register_typed_message(
+                                .map(|term| {
+                                    converter.register_typed_term(
                                         &for_who,
                                         &protocol.initiations,
-                                        msg.clone(),
+                                        term.clone(),
                                     )
                                 })
                                 .collect_vec(),
@@ -993,17 +974,17 @@ impl Session {
             .goals
             .iter()
             .flat_map(|goal| match goal {
-                protocol::Goal::SecretBetween(agents, msgs) => msgs
+                protocol::Goal::SecretBetween(agents, terms) => terms
                     .iter()
-                    .map(|msg| Secret {
+                    .map(|term| Secret {
                         between_agents: agents
                             .iter()
                             .map(|agent| converter.get_agent(&ForWho::Intruder(session_id), agent))
                             .collect(),
-                        msg: converter.register_typed_message(
+                        term: converter.register_typed_term(
                             &ForWho::Intruder(session_id),
                             &protocol.initiations,
-                            msg.clone(),
+                            term.clone(),
                         ),
                     })
                     .collect_vec(),
@@ -1034,7 +1015,7 @@ impl Session {
                     .initial_knowledge
                     .0
                     .iter()
-                    .map(|&msg| unifier.resolve_full(msg))
+                    .map(|&term| unifier.resolve_full(term))
                     .collect_vec()
             );
             for t in &agent.strand {
@@ -1042,9 +1023,9 @@ impl Session {
                     ">> {:?}->{:?}: {:?}",
                     unifier.resolve_full(t.sender),
                     unifier.resolve_full(t.receiver),
-                    t.messages
+                    t.terms
                         .iter()
-                        .map(|&msg| unifier.resolve_full(msg))
+                        .map(|&term| unifier.resolve_full(term))
                         .collect_vec()
                 );
             }
@@ -1052,29 +1033,29 @@ impl Session {
         println!();
         println!("=== SECRETS ===");
         for secret in &self.secrets {
-            println!("{:?}", unifier.resolve_full(secret.msg));
+            println!("{:?}", unifier.resolve_full(secret.term));
         }
     }
 }
 
 impl Knowledge {
-    pub fn can_construct(&self, unifier: &mut Unifier, msg: MessageId) -> bool {
+    pub fn can_construct(&self, unifier: &mut Unifier, term: TermId) -> bool {
         // eprintln!(
         //     "Can construct {:?} with knowledge {:?}",
-        //     unifier.resolve_full(msg),
+        //     unifier.resolve_full(term),
         //     self.0
         //         .iter()
-        //         .map(|&msg| unifier.resolve_full(msg))
+        //         .map(|&term| unifier.resolve_full(term))
         //         .format(", ")
         // );
-        // if self.0.iter().any(|&k| unifier.table.unioned(k, msg)) {
+        // if self.0.iter().any(|&k| unifier.table.unioned(k, term)) {
         //     return true;
         // }
-        // if self.0.iter().any(|&k| unifier.unify(k, msg).is_ok()) {
+        // if self.0.iter().any(|&k| unifier.unify(k, term).is_ok()) {
         //     return true;
         // }
 
-        if can_derive(self, msg, unifier) {
+        if can_derive(self, term, unifier) {
             return true;
         }
 

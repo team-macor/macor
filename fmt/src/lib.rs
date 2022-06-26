@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use macor_parse::parse_document;
+use macor_parse::{ast, parse_document};
 
 pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
     use std::fmt::Write;
@@ -21,7 +21,7 @@ pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
             write!(buf, "  {} ", t)?;
             write!(buf, "{}", ids.iter().format(","))?;
         } else {
-            writeln!(buf, ";");
+            writeln!(buf, ";")?;
             write!(buf, "  {} ", t)?;
             write!(buf, "{}", ids.iter().format(","))?;
         }
@@ -47,20 +47,25 @@ pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
     writeln!(buf, "Actions:")?;
     for action in ast.actions.iter() {
         write!(buf, "  {}->{}: ", action.from, action.to)?;
-        writeln!(buf, "{}", action.msgs.iter().format(","))?;
+        writeln!(buf, "{}", action.terms.iter().format(","))?;
     }
     writeln!(buf)?;
     writeln!(buf, "Goals:")?;
     for goal in ast.goals.iter() {
         match goal {
-            macor_parse::ast::Goal::Authenticates { a, b, msgs, weakly } => {
+            ast::Goal::Authenticates {
+                a,
+                b,
+                terms,
+                weakly,
+            } => {
                 if *weakly {
                     writeln!(
                         buf,
                         "  {} weakly authenticates {} on {}",
                         a,
                         b,
-                        msgs.iter().format(",")
+                        terms.iter().format(",")
                     )?;
                 } else {
                     writeln!(
@@ -68,12 +73,12 @@ pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
                         "  {} authenticates {} on {}",
                         a,
                         b,
-                        msgs.iter().format(",")
+                        terms.iter().format(",")
                     )?;
                 }
             }
-            macor_parse::ast::Goal::SecretBetween {
-                msgs,
+            ast::Goal::SecretBetween {
+                terms,
                 agents,
                 guessable,
             } => {
@@ -81,14 +86,14 @@ pub fn prettify(src: &str) -> Result<Option<String>, std::fmt::Error> {
                     writeln!(
                         buf,
                         "  {} guessable secret between {}",
-                        msgs.iter().format(","),
+                        terms.iter().format(","),
                         agents.iter().format(",")
                     )?;
                 } else {
                     writeln!(
                         buf,
                         "  {} secret between {}",
-                        msgs.iter().format(","),
+                        terms.iter().format(","),
                         agents.iter().format(",")
                     )?;
                 }

@@ -235,30 +235,38 @@ impl Backend {
                         agent
                             .initial_knowledge
                             .iter()
-                            .find_map(|msg| self.find_msg(byte_offset, msg))
+                            .find_map(|term| self.find_term(byte_offset, term))
                     })
                     .or_else(|| {
-                        agent.messages.iter().find_map(|pat| {
+                        agent.terms.iter().find_map(|pat| {
                             self.find_agent(byte_offset, &pat.from)
                                 .or_else(|| self.find_agent(byte_offset, &pat.to))
                                 .or_else(|| {
                                     pat.packet
                                         .iter()
-                                        .find_map(|msg| self.find_msg(byte_offset, msg))
+                                        .find_map(|term| self.find_term(byte_offset, term))
                                 })
                         })
                     })
             })
             .or_else(|| {
                 protocol.goals.iter().find_map(|goal| match goal {
-                    protocol::Goal::SecretBetween(agents, msgs) => agents
+                    protocol::Goal::SecretBetween(agents, terms) => agents
                         .iter()
                         .find_map(|a| self.find_agent(byte_offset, a))
-                        .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
-                    protocol::Goal::Authenticates(a, b, msgs) => self
+                        .or_else(|| {
+                            terms
+                                .iter()
+                                .find_map(|term| self.find_term(byte_offset, term))
+                        }),
+                    protocol::Goal::Authenticates(a, b, terms) => self
                         .find_agent(byte_offset, a)
                         .or_else(|| self.find_agent(byte_offset, b))
-                        .or_else(|| msgs.iter().find_map(|msg| self.find_msg(byte_offset, msg))),
+                        .or_else(|| {
+                            terms
+                                .iter()
+                                .find_map(|term| self.find_term(byte_offset, term))
+                        }),
                 })
             })
     }
@@ -269,9 +277,9 @@ impl Backend {
             None
         }
     }
-    fn find_msg(&self, byte_offset: usize, msg: &protocol::Message) -> Option<String> {
-        match msg {
-            protocol::Message::Variable(v) => match v {
+    fn find_term(&self, byte_offset: usize, term: &protocol::Term) -> Option<String> {
+        match term {
+            protocol::Term::Variable(v) => match v {
                 protocol::Variable::Agent(a) => return self.find_agent(byte_offset, a),
                 protocol::Variable::SymmetricKey(s) => {
                     if s.contains(byte_offset) {
@@ -284,7 +292,7 @@ impl Backend {
                     }
                 }
             },
-            protocol::Message::Constant(c) => match c {
+            protocol::Term::Constant(c) => match c {
                 protocol::Constant::Intruder => {}
                 protocol::Constant::Agent(a) => return self.find_agent(byte_offset, a),
                 protocol::Constant::Function(f) => match f {
@@ -300,7 +308,7 @@ impl Backend {
                 },
                 protocol::Constant::Nonce(_) => {}
             },
-            protocol::Message::Composition { func, args } => {
+            protocol::Term::Composition { func, args } => {
                 match func {
                     protocol::Func::SymEnc
                     | protocol::Func::AsymEnc
@@ -312,10 +320,10 @@ impl Backend {
                         }
                     }
                 }
-                return args.iter().find_map(|arg| self.find_msg(byte_offset, arg));
+                return args.iter().find_map(|arg| self.find_term(byte_offset, arg));
             }
-            protocol::Message::Tuple(ts) => {
-                return ts.iter().find_map(|t| self.find_msg(byte_offset, t))
+            protocol::Term::Tuple(ts) => {
+                return ts.iter().find_map(|t| self.find_term(byte_offset, t))
             }
         }
 

@@ -74,36 +74,36 @@ Flag<T>: bool = T? => <>.is_some();
 Where: Where<&'input str> = <a:Ident> "!=" <b:Ident> => Where::NotEqual(a,b);
 Wheres: Vec<Where<&'input str>> = "where" <Sep<",",Where>>;
 
-Knowledge: Knowledge<&'input str> = "Knowledge" ":" <agents:Sep<";", (<Ident> ":" <Sep<",",Message>>)>> <wheres:Wheres?> => Knowledge { agents, wheres: wheres.unwrap_or_default() };
+Knowledge: Knowledge<&'input str> = "Knowledge" ":" <agents:Sep<";", (<Ident> ":" <Sep<",",Term>>)>> <wheres:Wheres?> => Knowledge { agents, wheres: wheres.unwrap_or_default() };
 
 Actions: Vec<Action<&'input str>> = "Actions" ":" <Action*>;
 Action: Action<&'input str> =
-    <from:Ident> "->" <to:Ident> ":" <msgs:Sep<",", Message>> => Action { <> };
+    <from:Ident> "->" <to:Ident> ":" <terms:Sep<",", Term>> => Action { <> };
 
 Goals: Vec<Goal<&'input str>> = "Goals" ":" <Goal*>;
 
 
 pub Goal: Goal<&'input str> = {
-    <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <msgs:Sep<",", Message>> =>
+    <a:Ident> <weakly:Flag<"weakly">> "authenticates" <b:Ident> "on" <terms:Sep<",", Term>> =>
         Goal::Authenticates { <> },
-    <msgs:Messages> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
+    <terms:Terms> <guessable:Flag<"guessable">> "secret" "between" <agents:Sep<",", Ident>> =>
         Goal::SecretBetween { <> },
 };
 
-pub Messages: Vec<Message<&'input str>> = Sep<",", Message>;
-pub Message: Message<&'input str> = {
-    <Ident> => Message::Var(<>),
-    <Ident> "(" <Sep<",", Message>> ")" => Message::Fun(<>),
-    "{|" <msgs:Sep<",", Message>> "|}" "(" <key:Message> ")" => Message::SymEnc(msgs, Box::new(key)),
-    "{|" <msgs:Sep<",", Message>> "|}" <key:Message> => Message::SymEnc(msgs, Box::new(key)),
-    "{"  <msgs:Sep<",", Message>>  "}" "(" <key:Message> ")" => Message::AsymEnc(msgs, Box::new(key)),
-    "{"  <msgs:Sep<",", Message>>  "}" <key:Message> => Message::AsymEnc(msgs, Box::new(key)),
+pub Terms: Vec<Term<&'input str>> = Sep<",", Term>;
+pub Term: Term<&'input str> = {
+    <Ident> => Term::Var(<>),
+    <Ident> "(" <Sep<",", Term>> ")" => Term::Fun(<>),
+    "{|" <terms:Sep<",", Term>> "|}" "(" <key:Term> ")" => Term::SymEnc(terms, Box::new(key)),
+    "{|" <terms:Sep<",", Term>> "|}" <key:Term> => Term::SymEnc(terms, Box::new(key)),
+    "{"  <terms:Sep<",", Term>>  "}" "(" <key:Term> ")" => Term::AsymEnc(terms, Box::new(key)),
+    "{"  <terms:Sep<",", Term>>  "}" <key:Term> => Term::AsymEnc(terms, Box::new(key)),
 };
 
-pub NegMessages: Vec<(Message<&'input str>, bool)> = Sep<",", NegMessage>;
-pub NegMessage: (Message<&'input str>, bool) = {
-    "!" <Message> => (<>, false),
-    <Message> => (<>, true),
+pub NegTerms: Vec<(Term<&'input str>, bool)> = Sep<",", NegTerm>;
+pub NegTerm: (Term<&'input str>, bool) = {
+    "!" <Term> => (<>, false),
+    <Term> => (<>, true),
 }
 
 Ident: Ident<&'input str> = <l:@L> <i:r"[a-zA-Z_][a-zA-Z_0-9]*"> <r:@R> => Ident(i, (l, r - l).into());

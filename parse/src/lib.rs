@@ -6,7 +6,7 @@ pub mod chumskyparse;
 use lalrpop_util::lalrpop_mod;
 use miette::SourceSpan;
 
-use crate::ast::{Document, Message};
+use crate::ast::{Document, Term};
 
 lalrpop_mod!(parser);
 
@@ -89,9 +89,9 @@ pub fn parse_document(src: &str) -> Result<Document<&str>, ParseError> {
     }
 }
 
-pub fn parse_message(arg: &str) -> Result<Message<&str>, ParseError> {
-    static PARSER: once_cell::sync::Lazy<parser::MessageParser> =
-        once_cell::sync::Lazy::new(parser::MessageParser::new);
+pub fn parse_term(arg: &str) -> Result<Term<&str>, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::TermParser> =
+        once_cell::sync::Lazy::new(parser::TermParser::new);
 
     match PARSER.parse(arg) {
         Ok(p) => Ok(p),
@@ -99,9 +99,9 @@ pub fn parse_message(arg: &str) -> Result<Message<&str>, ParseError> {
     }
 }
 
-pub fn parse_messages(arg: &str) -> Result<Vec<Message<&str>>, ParseError> {
-    static PARSER: once_cell::sync::Lazy<parser::MessagesParser> =
-        once_cell::sync::Lazy::new(parser::MessagesParser::new);
+pub fn parse_terms(arg: &str) -> Result<Vec<Term<&str>>, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::TermsParser> =
+        once_cell::sync::Lazy::new(parser::TermsParser::new);
 
     match PARSER.parse(arg) {
         Ok(p) => Ok(p),
@@ -109,9 +109,9 @@ pub fn parse_messages(arg: &str) -> Result<Vec<Message<&str>>, ParseError> {
     }
 }
 
-pub fn parse_neg_messages(arg: &str) -> Result<Vec<(Message<&str>, bool)>, ParseError> {
-    static PARSER: once_cell::sync::Lazy<parser::NegMessagesParser> =
-        once_cell::sync::Lazy::new(parser::NegMessagesParser::new);
+pub fn parse_neg_terms(arg: &str) -> Result<Vec<(Term<&str>, bool)>, ParseError> {
+    static PARSER: once_cell::sync::Lazy<parser::NegTermsParser> =
+        once_cell::sync::Lazy::new(parser::NegTermsParser::new);
 
     match PARSER.parse(arg) {
         Ok(p) => Ok(p),

@@ -54,11 +54,11 @@ pub enum Goal<S: Deref<Target = str>> {
     Authenticates {
         a: Ident<S>,
         b: Ident<S>,
-        msgs: Vec<Message<S>>,
+        terms: Vec<Term<S>>,
         weakly: bool,
     },
     SecretBetween {
-        msgs: Vec<Message<S>>,
+        terms: Vec<Term<S>>,
         agents: Vec<Ident<S>>,
         guessable: bool,
     },
@@ -67,18 +67,23 @@ pub enum Goal<S: Deref<Target = str>> {
 impl<S: Deref<Target = str>> Goal<S> {
     pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Goal<T> {
         match self {
-            Goal::Authenticates { a, b, msgs, weakly } => Goal::Authenticates {
+            Goal::Authenticates {
+                a,
+                b,
+                terms,
+                weakly,
+            } => Goal::Authenticates {
                 a: a.map(f),
                 b: b.map(f),
-                msgs: msgs.into_iter().map(|msg| msg.map(f)).collect(),
+                terms: terms.into_iter().map(|term| term.map(f)).collect(),
                 weakly,
             },
             Goal::SecretBetween {
-                msgs,
+                terms,
                 agents,
                 guessable,
             } => Goal::SecretBetween {
-                msgs: msgs.into_iter().map(|msg| msg.map(f)).collect(),
+                terms: terms.into_iter().map(|term| term.map(f)).collect(),
                 agents: agents.into_iter().map(|i| i.map(f)).collect(),
                 guessable,
             },
@@ -87,38 +92,39 @@ impl<S: Deref<Target = str>> Goal<S> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Message<S: Deref<Target = str>> {
+pub enum Term<S: Deref<Target = str>> {
     Var(Ident<S>),
-    Fun(Ident<S>, Vec<Message<S>>),
-    SymEnc(Vec<Message<S>>, Box<Message<S>>),
-    AsymEnc(Vec<Message<S>>, Box<Message<S>>),
+    Fun(Ident<S>, Vec<Term<S>>),
+    SymEnc(Vec<Term<S>>, Box<Term<S>>),
+    AsymEnc(Vec<Term<S>>, Box<Term<S>>),
 }
 
-impl<S: Deref<Target = str>> std::fmt::Display for Message<S> {
+impl<S: Deref<Target = str>> std::fmt::Display for Term<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Message::Var(i) => write!(f, "{}", i),
-            Message::Fun(i, msgs) => write!(f, "{}({})", i, msgs.iter().format(",")),
-            Message::SymEnc(msg, key) => write!(f, "{{| {} |}}{}", msg.iter().format(","), key),
-            Message::AsymEnc(msg, key) => write!(f, "{{ {} }}{}", msg.iter().format(","), key),
+            Term::Var(i) => write!(f, "{}", i),
+            Term::Fun(i, terms) => write!(f, "{}({})", i, terms.iter().format(",")),
+            Term::SymEnc(term, key) => write!(f, "{{| {} |}}{}", term.iter().format(","), key),
+            Term::AsymEnc(term, key) => write!(f, "{{ {} }}{}", term.iter().format(","), key),
         }
     }
 }
 
-impl<S: Deref<Target = str>> Message<S> {
-    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Message<T> {
+impl<S: Deref<Target = str>> Term<S> {
+    pub fn map<T: Deref<Target = str>>(self, f: impl Fn(S) -> T + Copy) -> Term<T> {
         match self {
-            Message::Var(i) => Message::Var(i.map(f)),
-            Message::Fun(i, msgs) => {
-                Message::Fun(i.map(f), msgs.into_iter().map(|msg| msg.map(f)).collect())
-            }
+            Term::Var(i) => Term::Var(i.map(f)),
+            Term::Fun(i, terms) => Term::Fun(
+                i.map(f),
+                terms.into_iter().map(|term| term.map(f)).collect(),
+            ),
 
-            Message::SymEnc(msgs, key) => Message::SymEnc(
-                msgs.into_iter().map(|msg| msg.map(f)).collect(),
+            Term::SymEnc(terms, key) => Term::SymEnc(
+                terms.into_iter().map(|term| term.map(f)).collect(),
                 box key.map(f),
             ),
-            Message::AsymEnc(msgs, key) => Message::AsymEnc(
-                msgs.into_iter().map(|msg| msg.map(f)).collect(),
+            Term::AsymEnc(terms, key) => Term::AsymEnc(
+                terms.into_iter().map(|term| term.map(f)).collect(),
                 box key.map(f),
             ),
         }
@@ -129,7 +135,7 @@ impl<S: Deref<Target = str>> Message<S> {
 pub struct Action<S: Deref<Target = str>> {
     pub from: Ident<S>,
     pub to: Ident<S>,
-    pub msgs: Vec<Message<S>>,
+    pub terms: Vec<Term<S>>,
 }
 
 impl<S: Deref<Target = str>> Action<S> {
@@ -137,13 +143,13 @@ impl<S: Deref<Target = str>> Action<S> {
         Action {
             from: self.from.map(f),
             to: self.to.map(f),
-            msgs: self.msgs.into_iter().map(|mgs| mgs.map(f)).collect(),
+            terms: self.terms.into_iter().map(|mgs| mgs.map(f)).collect(),
         }
     }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Knowledge<S: Deref<Target = str>> {
-    pub agents: Vec<(Ident<S>, Vec<Message<S>>)>,
+    pub agents: Vec<(Ident<S>, Vec<Term<S>>)>,
     pub wheres: Vec<Where<S>>,
 }
 
@@ -153,7 +159,12 @@ impl<S: Deref<Target = str>> Knowledge<S> {
             agents: self
                 .agents
                 .into_iter()
-                .map(|(i, msgs)| (i.map(f), msgs.into_iter().map(|msg| msg.map(f)).collect()))
+                .map(|(i, terms)| {
+                    (
+                        i.map(f),
+                        terms.into_iter().map(|term| term.map(f)).collect(),
+                    )
+                })
                 .collect(),
 
             wheres: self.wheres.into_iter().map(|w| w.map(f)).collect(),

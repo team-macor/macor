@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::{
     execution::{self, Execution},
-    messages::{self, Converter, FullMessage, Kind, Message, Unifier},
+    messages::{self, Converter, FullTerm, Kind, Term, Unifier},
     protocol::{Func, Protocol, SessionId},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
@@ -23,20 +23,20 @@ impl std::fmt::Display for Participant {
     }
 }
 
-impl std::fmt::Display for FullMessage {
+impl std::fmt::Display for FullTerm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
-            Message::Intruder => write!(f, "i"),
-            Message::Variable(inner, _) => write!(f, "{}", inner.as_ref().unwrap()),
-            Message::Constant(inner, _) => write!(f, "{}", inner.1.clone().unwrap()),
-            Message::Composition(func, args) => match func {
+            Term::Intruder => write!(f, "i"),
+            Term::Variable(inner, _) => write!(f, "{}", inner.as_ref().unwrap()),
+            Term::Constant(inner, _) => write!(f, "{}", inner.1.clone().unwrap()),
+            Term::Composition(func, args) => match func {
                 Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
                 Func::User(name) => write!(f, "{}({})", name, args.iter().format(", ")),
             },
-            Message::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
+            Term::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
         }
     }
 }
@@ -44,7 +44,7 @@ impl std::fmt::Display for FullMessage {
 struct TraceEntry {
     sender: Participant,
     receiver: Participant,
-    messages: Vec<FullMessage>,
+    terms: Vec<FullTerm>,
 }
 
 impl std::fmt::Display for TraceEntry {
@@ -54,18 +54,18 @@ impl std::fmt::Display for TraceEntry {
             "{} -> {}: {}",
             self.sender,
             self.receiver,
-            self.messages.iter().format(", ")
+            self.terms.iter().format(", ")
         )
     }
 }
 
 impl TraceEntry {
-    fn from_messages_trace(entry: &execution::TraceEntry, unifier: &mut Unifier) -> Self {
+    fn from_terms_trace(entry: &execution::TraceEntry, unifier: &mut Unifier) -> Self {
         let sender = match &entry.sender {
             Some(sender) => match unifier.probe_value(sender.1) {
-                Message::Intruder => Participant::Intruder,
-                Message::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
-                Message::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
+                Term::Intruder => Participant::Intruder,
+                Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
+                Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
                 u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
@@ -73,24 +73,24 @@ impl TraceEntry {
 
         let receiver = match &entry.receiver {
             Some(receiver) => match unifier.probe_value(receiver.1) {
-                Message::Intruder => Participant::Intruder,
-                Message::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
-                Message::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
+                Term::Intruder => Participant::Intruder,
+                Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
+                Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
                 u => unreachable!("Receiver must be agent (or constant agents), was {:?}", u),
             },
             None => Participant::Intruder,
         };
 
-        let messages = entry
-            .messages
+        let terms = entry
+            .terms
             .iter()
-            .map(|msg| unifier.resolve_full(*msg))
+            .map(|term| unifier.resolve_full(*term))
             .collect();
 
         Self {
             sender,
             receiver,
-            messages,
+            terms,
         }
     }
 }
@@ -117,9 +117,9 @@ impl std::fmt::Display for Trace {
         //             .as_ref()
         //             .map(|r| format!("{:?}", self.unifier.resolve_full(r.1)))
         //             .unwrap_or_else(|| "?".to_string()),
-        //         t.messages
+        //         t.terms
         //             .iter()
-        //             .map(|&msg| self.unifier.resolve_full(msg))
+        //             .map(|&term| self.unifier.resolve_full(term))
         //             .format(", ")
         //     );
         // }
@@ -208,17 +208,17 @@ impl Verifier {
                             if let Some((_, e)) = entry.sender {
                                 unifier.resolve_full(e)
                             } else {
-                                FullMessage(Message::Intruder)
+                                FullTerm(Term::Intruder)
                             },
                             if let Some((_, e)) = entry.receiver {
                                 unifier.resolve_full(e)
                             } else {
-                                FullMessage(Message::Intruder)
+                                FullTerm(Term::Intruder)
                             },
                             entry
-                                .messages
+                                .terms
                                 .iter()
-                                .map(|&msg| unifier.resolve_full(msg))
+                                .map(|&term| unifier.resolve_full(term))
                                 .format(", ")
                         )
                     }
@@ -229,7 +229,7 @@ impl Verifier {
                             w.trace
                                 .iter()
                                 .map(|entry| {
-                                    TraceEntry::from_messages_trace(entry, &mut w.unifier)
+                                    TraceEntry::from_terms_trace(entry, &mut w.unifier)
                                 })
                                 .collect(),
                         )
@@ -284,7 +284,7 @@ impl Verifier {
                             .trace
                             .iter()
                             .map(|entry| {
-                                TraceEntry::from_messages_trace(entry, &mut execution.unifier)
+                                TraceEntry::from_terms_trace(entry, &mut execution.unifier)
                             })
                             .collect(),
                     )));
@@ -333,7 +333,7 @@ impl Verifier {
                                         next.trace
                                             .iter()
                                             .map(|entry| {
-                                                TraceEntry::from_messages_trace(
+                                                TraceEntry::from_terms_trace(
                                                     entry,
                                                     &mut next.unifier,
                                                 )

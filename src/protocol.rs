@@ -35,14 +35,14 @@ pub enum Func<U = Ident<SmolStr>> {
 pub struct LazyId(pub usize);
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub enum Message<S: Stage = TypedStage> {
+pub enum Term<S: Stage = TypedStage> {
     Variable(S::Variable),
     Constant(S::Constant),
-    Composition { func: Func, args: Vec<Message<S>> },
-    Tuple(Vec<Message<S>>),
+    Composition { func: Func, args: Vec<Term<S>> },
+    Tuple(Vec<Term<S>>),
 }
 
-impl<S: Stage> std::fmt::Debug for Message<S> {
+impl<S: Stage> std::fmt::Debug for Term<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Variable(var) => write!(f, "@{var:?}"),
@@ -59,11 +59,11 @@ impl<S: Stage> std::fmt::Debug for Message<S> {
     }
 }
 
-impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
-    fn from(message: ast::Message<&'a str>) -> Self {
-        match message {
-            ast::Message::Var(var) => Self::Variable(var.clone()),
-            ast::Message::Fun(name, args) => match name.as_str() {
+impl<'a> From<ast::Term<&'a str>> for Term<UntypedStage<'a>> {
+    fn from(term: ast::Term<&'a str>) -> Self {
+        match term {
+            ast::Term::Var(var) => Self::Variable(var.clone()),
+            ast::Term::Fun(name, args) => match name.as_str() {
                 "inv" => Self::Composition {
                     func: Func::Inv,
                     args: args.into_iter().map_into().collect(),
@@ -77,18 +77,18 @@ impl<'a> From<ast::Message<&'a str>> for Message<UntypedStage<'a>> {
                     args: args.into_iter().map_into().collect(),
                 },
             },
-            ast::Message::SymEnc(messages, key) => Self::Composition {
+            ast::Term::SymEnc(terms, key) => Self::Composition {
                 func: Func::SymEnc,
                 args: vec![
-                    Message::Tuple(messages.into_iter().map_into().collect()),
-                    Message::from(*key),
+                    Term::Tuple(terms.into_iter().map_into().collect()),
+                    Term::from(*key),
                 ],
             },
-            ast::Message::AsymEnc(messages, key) => Self::Composition {
+            ast::Term::AsymEnc(terms, key) => Self::Composition {
                 func: Func::AsymEnc,
                 args: vec![
-                    Message::Tuple(messages.into_iter().map_into().collect()),
-                    Message::from(*key),
+                    Term::Tuple(terms.into_iter().map_into().collect()),
+                    Term::from(*key),
                 ],
             },
         }
@@ -114,37 +114,37 @@ pub struct Nonce(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Packet {
-    pub messages: Vec<Message>,
+    pub terms: Vec<Term>,
 }
 
-impl FromIterator<Message> for Packet {
-    fn from_iter<T: IntoIterator<Item = Message>>(iter: T) -> Self {
+impl FromIterator<Term> for Packet {
+    fn from_iter<T: IntoIterator<Item = Term>>(iter: T) -> Self {
         Packet {
-            messages: iter.into_iter().collect(),
+            terms: iter.into_iter().collect(),
         }
     }
 }
 
 impl IntoIterator for Packet {
-    type Item = Message;
+    type Item = Term;
 
-    type IntoIter = std::vec::IntoIter<Message>;
+    type IntoIter = std::vec::IntoIter<Term>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.messages.into_iter()
+        self.terms.into_iter()
     }
 }
 impl<'a> IntoIterator for &'a Packet {
-    type Item = &'a Message;
+    type Item = &'a Term;
 
-    type IntoIter = std::slice::Iter<'a, Message>;
+    type IntoIter = std::slice::Iter<'a, Term>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.messages.iter()
+        self.terms.iter()
     }
 }
 impl Packet {
-    pub fn iter(&self) -> impl Iterator<Item = &Message> {
+    pub fn iter(&self) -> impl Iterator<Item = &Term> {
         self.into_iter()
     }
 }
@@ -175,13 +175,13 @@ pub struct ProtocolAgent {
     pub name: AgentName,
     pub kind: AgentKind,
     pub initial_knowledge: Knowledge,
-    pub messages: Vec<PacketPattern>,
+    pub terms: Vec<PacketPattern>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Goal<A> {
-    SecretBetween(Vec<A>, Vec<Message>),
-    Authenticates(A, A, Vec<Message>),
+    SecretBetween(Vec<A>, Vec<Term>),
+    Authenticates(A, A, Vec<Term>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -194,14 +194,14 @@ pub struct Protocol {
 struct ProtocolAction {
     from: Ident<SmolStr>,
     to: Ident<SmolStr>,
-    messages: Vec<Message>,
+    terms: Vec<Term>,
     initiates: IndexSet<Variable>,
 }
 
 impl Protocol {
     fn new_protocol_agent(
         agent: &Ident<SmolStr>,
-        knowledge: &[ast::Message<&str>],
+        knowledge: &[ast::Term<&str>],
         ctx: &mut TypingContext,
         actions: &[ProtocolAction],
     ) -> ProtocolAgent {
@@ -215,7 +215,7 @@ impl Protocol {
                 AgentKind::Variable
             },
             initial_knowledge: k.to_typed(ctx),
-            messages: actions
+            terms: actions
                 .iter()
                 .filter_map(|a| {
                     let direction = if &a.from == agent {
@@ -230,7 +230,7 @@ impl Protocol {
                         from: AgentName(a.from.convert()),
                         to: AgentName(a.to.convert()),
                         direction,
-                        packet: a.messages.iter().cloned().collect(),
+                        packet: a.terms.iter().cloned().collect(),
                         initiates: a.initiates.clone(),
                     })
                 })
@@ -265,10 +265,10 @@ impl Protocol {
             .map(|action| ProtocolAction {
                 from: action.from.convert(),
                 to: action.to.convert(),
-                messages: action
-                    .msgs
+                terms: action
+                    .terms
                     .iter()
-                    .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                    .map(|term| Term::<UntypedStage>::from(term.clone()).to_typed(&mut ctx))
                     .collect(),
                 initiates: Default::default(),
             })
@@ -279,9 +279,9 @@ impl Protocol {
 
         for action in &mut actions {
             let in_this: IndexSet<Variable> = action
-                .messages
+                .terms
                 .iter()
-                .flat_map(|msg| msg.extract_variables())
+                .flat_map(|term| term.extract_variables())
                 .collect();
 
             action.initiates = in_this.difference(&seen).cloned().collect();
@@ -307,17 +307,18 @@ impl Protocol {
                 ast::Goal::Authenticates {
                     a,
                     b,
-                    msgs,
+                    terms,
                     weakly: _,
                 } => Goal::Authenticates(
                     AgentName(a.convert()),
                     AgentName(b.convert()),
-                    msgs.iter()
-                        .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                    terms
+                        .iter()
+                        .map(|term| Term::<UntypedStage>::from(term.clone()).to_typed(&mut ctx))
                         .collect(),
                 ),
                 ast::Goal::SecretBetween {
-                    msgs,
+                    terms,
                     agents,
                     guessable: _,
                 } => Goal::SecretBetween(
@@ -325,8 +326,9 @@ impl Protocol {
                         .iter()
                         .map(|agent| AgentName(agent.convert()))
                         .collect(),
-                    msgs.iter()
-                        .map(|msg| Message::<UntypedStage>::from(msg.clone()).to_typed(&mut ctx))
+                    terms
+                        .iter()
+                        .map(|term| Term::<UntypedStage>::from(term.clone()).to_typed(&mut ctx))
                         .collect(),
                 ),
             })
@@ -361,38 +363,38 @@ impl<T> Func<T> {
         }
     }
 }
-impl Message {
+impl Term {
     fn extract_variables(&self) -> IndexSet<Variable> {
         match self {
-            Message::Variable(v) => indexset! { v.clone() },
-            Message::Constant(_) => indexset! {},
-            Message::Composition { func: _, args } => args
+            Term::Variable(v) => indexset! { v.clone() },
+            Term::Constant(_) => indexset! {},
+            Term::Composition { func: _, args } => args
                 .iter()
                 .flat_map(|arg| arg.extract_variables())
                 .collect(),
-            Message::Tuple(ts) => ts.iter().flat_map(|t| t.extract_variables()).collect(),
+            Term::Tuple(ts) => ts.iter().flat_map(|t| t.extract_variables()).collect(),
         }
     }
 
     pub(crate) fn replace_agent_with_intruder(&self, current_agent: &AgentName) -> Self {
         match self {
-            Message::Variable(var) => match var {
-                Variable::Agent(a) if a == current_agent => Message::Constant(Constant::Intruder),
+            Term::Variable(var) => match var {
+                Variable::Agent(a) if a == current_agent => Term::Constant(Constant::Intruder),
                 Variable::SymmetricKey(_) | Variable::Number(_) | Variable::Agent(_) => {
-                    Message::Variable(var.clone())
+                    Term::Variable(var.clone())
                 }
             },
-            Message::Constant(_) => self.clone(),
-            Message::Composition { func, args } => Message::Composition {
+            Term::Constant(_) => self.clone(),
+            Term::Composition { func, args } => Term::Composition {
                 func: func.clone(),
                 args: args
                     .iter()
-                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
+                    .map(|term| term.replace_agent_with_intruder(current_agent))
                     .collect(),
             },
-            Message::Tuple(args) => Message::Tuple(
+            Term::Tuple(args) => Term::Tuple(
                 args.iter()
-                    .map(|msg| msg.replace_agent_with_intruder(current_agent))
+                    .map(|term| term.replace_agent_with_intruder(current_agent))
                     .collect(),
             ),
         }
@@ -400,11 +402,11 @@ impl Message {
 
     pub fn span(&self) -> Option<miette::SourceSpan> {
         match self {
-            Message::Variable(var) => match var {
+            Term::Variable(var) => match var {
                 Variable::Agent(a) => Some(a.span()),
                 Variable::SymmetricKey(n) | Variable::Number(n) => Some(n.span()),
             },
-            Message::Constant(c) => match c {
+            Term::Constant(c) => match c {
                 Constant::Intruder => None,
                 Constant::Agent(a) => Some(a.span()),
                 Constant::Function(f) => match f {
@@ -413,7 +415,7 @@ impl Message {
                 },
                 Constant::Nonce(_) => None,
             },
-            Message::Composition { func, args } => args.iter().filter_map(|arg| arg.span()).fold(
+            Term::Composition { func, args } => args.iter().filter_map(|arg| arg.span()).fold(
                 match func {
                     Func::SymEnc => None,
                     Func::AsymEnc => None,
@@ -426,7 +428,7 @@ impl Message {
                     None => Some(b),
                 },
             ),
-            Message::Tuple(_) => todo!(),
+            Term::Tuple(_) => todo!(),
         }
     }
 }

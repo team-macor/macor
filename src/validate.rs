@@ -5,23 +5,23 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    messages::{Converter, FullMessage, Knowledge, MessageId, Session, Unifier},
+    messages::{Converter, FullTerm, Knowledge, Session, TermId, Unifier},
     protocol::{Direction, Protocol, SessionId},
 };
 
 struct AgentState {
-    id: MessageId,
+    id: TermId,
     knowledge: Knowledge,
     step: usize,
 }
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic, Clone)]
 pub enum ValidateError {
-    #[error("An agent cannot send messages to themselves")]
+    #[error("An agent cannot send terms to themselves")]
     CannotSendSelf {
         #[source_code]
         src: String,
-        #[label("Here, the agent '{agent:?}' tries to send a message to themselves")]
+        #[label("Here, the agent '{agent:?}' tries to send a term to themselves")]
         err_span: SourceSpan,
         agent: Ident<SmolStr>,
     },
@@ -33,15 +33,15 @@ pub enum ValidateError {
         err_span: SourceSpan,
         agent: Ident<SmolStr>,
     },
-    #[error("Message not constructable")]
-    MessageIsNotConstructable {
+    #[error("Term not constructable")]
+    TermIsNotConstructable {
         #[source_code]
         src: String,
-        #[label("At this point in the protocol the agent '{agent:?}' cannot construct:\n  {msg:?}\nTheir current knowledge is:\n  {:?}", knowledge.iter().format(", "))]
+        #[label("At this point in the protocol the agent '{agent:?}' cannot construct:\n  {term:?}\nTheir current knowledge is:\n  {:?}", knowledge.iter().format(", "))]
         err_span: SourceSpan,
         agent: Ident<SmolStr>,
-        msg: FullMessage,
-        knowledge: Vec<FullMessage>,
+        term: FullTerm,
+        knowledge: Vec<FullTerm>,
     },
 }
 
@@ -80,21 +80,21 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                 continue;
             }
 
-            let sender_msg = &sender.strand[sender_state.step];
+            let sender_term = &sender.strand[sender_state.step];
 
-            if sender_msg.sender == sender_msg.receiver {
+            if sender_term.sender == sender_term.receiver {
                 errors.push(ValidateError::CannotSendSelf {
                     src: src.to_string(),
-                    err_span: sender_msg.ast_node.to.span(),
-                    agent: sender_msg.ast_node.to.0.clone(),
+                    err_span: sender_term.ast_node.to.span(),
+                    agent: sender_term.ast_node.to.0.clone(),
                 });
                 continue;
             }
 
-            if sender_msg.direction == Direction::Outgoing {
+            if sender_term.direction == Direction::Outgoing {
                 if let Some(recipient_i) = agent_states
                     .iter()
-                    .position(|a| a.id == sender_msg.receiver)
+                    .position(|a| a.id == sender_term.receiver)
                 {
                     let recipient = &session.agents[recipient_i];
                     let recipient_state = &agent_states[recipient_i];
@@ -103,20 +103,20 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                         todo!()
                     }
 
-                    let recipient_msg = &recipient.strand[recipient_state.step];
+                    let recipient_term = &recipient.strand[recipient_state.step];
 
-                    if recipient_msg.direction == Direction::Outgoing {
+                    if recipient_term.direction == Direction::Outgoing {
                         todo!()
                     }
 
-                    if sender_msg.messages.len() != recipient_msg.messages.len() {
+                    if sender_term.terms.len() != recipient_term.terms.len() {
                         todo!()
                     }
 
-                    for (msg_i, (a, b)) in sender_msg
-                        .messages
+                    for (term_i, (a, b)) in sender_term
+                        .terms
                         .iter()
-                        .zip_eq(recipient_msg.messages.iter())
+                        .zip_eq(recipient_term.terms.iter())
                         .enumerate()
                     {
                         if unifier.unify(*a, *b).is_err() {
@@ -124,15 +124,13 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                         }
                     }
 
-                    for (msg_i, msg) in sender_msg.messages.iter().enumerate() {
-                        if !sender_state.knowledge.can_construct(unifier, *msg) {
-                            errors.push(ValidateError::MessageIsNotConstructable {
+                    for (term_i, term) in sender_term.terms.iter().enumerate() {
+                        if !sender_state.knowledge.can_construct(unifier, *term) {
+                            errors.push(ValidateError::TermIsNotConstructable {
                                 src: src.to_string(),
-                                err_span: sender_msg.ast_node.packet.messages[msg_i]
-                                    .span()
-                                    .unwrap(),
+                                err_span: sender_term.ast_node.packet.terms[term_i].span().unwrap(),
                                 agent: sender.name.clone(),
-                                msg: unifier.resolve_full(sender_msg.messages[msg_i]),
+                                term: unifier.resolve_full(sender_term.terms[term_i]),
                                 knowledge: sender_state
                                     .knowledge
                                     .0
@@ -149,15 +147,15 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                     agent_states[recipient_i]
                         .knowledge
                         .0
-                        .extend(sender_msg.messages.iter().cloned());
+                        .extend(sender_term.terms.iter().cloned());
                     dolev_yao::augment_knowledge(&mut agent_states[recipient_i].knowledge, unifier);
 
                     did_progress = true;
                 } else {
                     errors.push(ValidateError::AgentDoesNotExist {
                         src: src.to_string(),
-                        err_span: sender_msg.ast_node.to.span(),
-                        agent: sender_msg.ast_node.to.0.clone(),
+                        err_span: sender_term.ast_node.to.span(),
+                        agent: sender_term.ast_node.to.0.clone(),
                     });
                 }
             }

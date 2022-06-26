@@ -1,30 +1,22 @@
-use crate::messages::{Knowledge, Message, MessageId, Unifier};
+use crate::messages::{Knowledge, Term, TermId, Unifier};
 use crate::protocol::Func;
 
-pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier) -> bool {
+pub fn can_derive(knowledge: &Knowledge, goal: TermId, unifier: &mut Unifier) -> bool {
     let mut stack = vec![goal];
 
-    while let Some(message) = stack.pop() {
+    while let Some(term) = stack.pop() {
         // Axiom
-        if knowledge
-            .0
-            .iter()
-            .any(|msg| unifier.are_unified(*msg, message))
-        {
+        if knowledge.0.iter().any(|t| unifier.are_unified(*t, term)) {
             continue;
         }
-        if knowledge
-            .0
-            .iter()
-            .any(|msg| unifier.unify(*msg, message).is_ok())
-        {
+        if knowledge.0.iter().any(|t| unifier.unify(*t, term).is_ok()) {
             continue;
         }
 
         // Compose
-        // dbg!(unifier.resolve_full(message));
-        match unifier.probe_value(message) {
-            Message::Composition(func, args) => {
+        // dbg!(unifier.resolve_full(term));
+        match unifier.probe_value(term) {
+            Term::Composition(func, args) => {
                 match func {
                     Func::Inv => return false,
                     Func::User(c) => {
@@ -38,7 +30,7 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                     stack.push(a);
                 }
             }
-            Message::Tuple(ts) => {
+            Term::Tuple(ts) => {
                 for a in ts {
                     stack.push(a);
                 }
@@ -50,66 +42,66 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
 }
 
 pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
-    let mut new_messages: Vec<MessageId> = Vec::new();
+    let mut new_terms: Vec<TermId> = Vec::new();
     loop {
-        for message in knowledge.0.iter() {
-            match unifier.probe_value(*message) {
-                Message::Composition(func, args) => match func {
+        for term in knowledge.0.iter() {
+            match unifier.probe_value(*term) {
+                Term::Composition(func, args) => match func {
                     Func::SymEnc => {
                         if args.len() != 2 {
                             unreachable!("arguments for symmetric encrypt function must only contain 2 arguments")
                         }
-                        let (message, key) = (&args[0], &args[1]);
+                        let (term, key) = (&args[0], &args[1]);
 
                         if can_derive(knowledge, *key, unifier) {
                             // println!(
-                            //     "adding message {:?} to new_messages",
-                            //     unifier.resolve_full(*message)
+                            //     "adding term {:?} to new_terms",
+                            //     unifier.resolve_full(*term)
                             // );
-                            new_messages.push(*message);
+                            new_terms.push(*term);
                         }
                     }
                     Func::AsymEnc => {
                         if args.len() != 2 {
                             unreachable!("arguments for asymmetric encrypt function must only contain 2 arguments");
                         }
-                        let (message, key) = (&args[0], &args[1]);
+                        let (term, key) = (&args[0], &args[1]);
 
-                        if let Message::Composition(Func::Inv, _) = unifier.probe_value(*key) {
-                            new_messages.push(*message);
+                        if let Term::Composition(Func::Inv, _) = unifier.probe_value(*key) {
+                            new_terms.push(*term);
                         }
 
-                        // TODO: inv(key) should be goal here, not message
-                        if can_derive(knowledge, *message, unifier) {
-                            new_messages.push(*message);
+                        // TODO: inv(key) should be goal here, not term
+                        if can_derive(knowledge, *term, unifier) {
+                            new_terms.push(*term);
                         }
                     }
                     _ => {}
                 },
-                Message::Tuple(messages) => {
-                    for m in messages {
-                        new_messages.push(m);
+                Term::Tuple(terms) => {
+                    for m in terms {
+                        new_terms.push(m);
                     }
                 }
                 _ => {}
             }
         }
 
-        new_messages.retain(|message| !knowledge.0.contains(message));
+        new_terms.retain(|term| !knowledge.0.contains(term));
 
         // remove tuples
-        if new_messages.is_empty() {
+        if new_terms.is_empty() {
             knowledge
                 .0
-                .retain(|m| !matches!(unifier.probe_value(*m), Message::Tuple(_)));
+                .retain(|m| !matches!(unifier.probe_value(*m), Term::Tuple(_)));
             knowledge.0.sort_unstable();
             knowledge.0.dedup();
             return;
         }
 
-        knowledge.0.append(&mut new_messages);
+        knowledge.0.append(&mut new_terms);
 
-        assert_eq!(new_messages.len(), 0);
+        assert_eq!(new_terms.len(), 0);
     }
 }
 
@@ -119,14 +111,14 @@ mod tests {
 
     use crate::messages::{Converter, Knowledge};
 
-    // TODO: needs to handle message with commas like {|A, B|} as 1 message (call parser)
+    // TODO: needs to handle term with commas like {|A, B|} as 1 term (call parser)
     macro_rules! scenario {
         (knowledge : $k:tt ; goals : $g:tt ;) => {
             // let knowledge: Vec<_> = $k.split(",").into_iter().map(|s| s.to_string()).collect();
             // let goals = vec![$(stringify!($g)),+];
 
-            let knowledge = macor_parse::parse_messages($k).unwrap();
-            let goals = macor_parse::parse_neg_messages($g).unwrap();
+            let knowledge = macor_parse::parse_terms($k).unwrap();
+            let goals = macor_parse::parse_neg_terms($g).unwrap();
 
             let mut unifier = Default::default();
             let mut mapper = Default::default();
@@ -135,13 +127,13 @@ mod tests {
             let mut knowledge = Knowledge(
                 knowledge
                     .into_iter()
-                    .map(|k| converter.register_ast_message(k.into()))
+                    .map(|k| converter.register_ast_term(k.into()))
                     .collect_vec(),
             );
 
             let goals = goals
                 .into_iter()
-                .map(|(g, b)| (b, converter.register_ast_message(g.into())))
+                .map(|(g, b)| (b, converter.register_ast_term(g.into())))
                 .collect_vec();
 
             crate::dolev_yao::augment_knowledge(&mut knowledge, &mut unifier);
