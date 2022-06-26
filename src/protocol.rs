@@ -351,6 +351,15 @@ impl<T> Func<T> {
             Func::User(_) => false,
         }
     }
+    pub fn map<S>(&self, f: impl FnOnce(&T) -> S) -> Func<S> {
+        match self {
+            Func::SymEnc => Func::SymEnc,
+            Func::AsymEnc => Func::AsymEnc,
+            Func::Exp => Func::Exp,
+            Func::Inv => Func::Inv,
+            Func::User(c) => Func::User(f(c)),
+        }
+    }
 }
 impl Message {
     fn extract_variables(&self) -> IndexSet<Variable> {

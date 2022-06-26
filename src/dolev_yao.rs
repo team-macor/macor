@@ -28,10 +28,7 @@ pub fn can_derive(knowledge: &Knowledge, goal: MessageId, unifier: &mut Unifier)
                 match func {
                     Func::Inv => return false,
                     Func::User(c) => {
-                        if !knowledge.0.iter().any(|f| match unifier.probe_value(*f) {
-                            Message::Constant(x, _) => x == c,
-                            _ => false,
-                        }) {
+                        if !knowledge.0.iter().any(|f| unifier.are_unified(*f, c)) {
                             return false;
                         }
                     }

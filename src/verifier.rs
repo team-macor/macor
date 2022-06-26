@@ -34,12 +34,7 @@ impl std::fmt::Display for FullMessage {
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
-                Func::User(name) => write!(
-                    f,
-                    "{}({})",
-                    name.1.clone().unwrap(),
-                    args.iter().format(", ")
-                ),
+                Func::User(name) => write!(f, "{}({})", name, args.iter().format(", ")),
             },
             Message::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
         }

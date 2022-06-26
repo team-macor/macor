@@ -60,7 +60,7 @@ pub enum Message<M> {
     Intruder,
     Variable(Option<SmolStr>, Kind),
     Constant(ConstantId, Kind),
-    Composition(Func<ConstantId>, Vec<M>),
+    Composition(Func<M>, Vec<M>),
     Tuple(Vec<M>),
 }
 
@@ -75,7 +75,7 @@ impl<M> Message<M> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FullMessage(pub Message<FullMessage>);
+pub struct FullMessage(pub Message<Box<FullMessage>>);
 
 impl<M: std::fmt::Debug> std::fmt::Debug for Message<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -334,18 +334,21 @@ impl Unifier {
     }
 
     pub fn resolve_full(&mut self, id: MessageId) -> FullMessage {
-        match self.table.probe_value(id) {
-            Message::Intruder => FullMessage(Message::Intruder),
-            Message::Variable(v, kind) => FullMessage(Message::Variable(v, kind)),
-            Message::Constant(c, kind) => FullMessage(Message::Constant(c, kind)),
-            Message::Composition(func, args) => FullMessage(Message::Composition(
-                func,
-                args.into_iter().map(|arg| self.resolve_full(arg)).collect(),
-            )),
-            Message::Tuple(ts) => FullMessage(Message::Tuple(
-                ts.into_iter().map(|t| self.resolve_full(t)).collect(),
-            )),
-        }
+        let msg = match self.table.probe_value(id) {
+            Message::Intruder => Message::Intruder,
+            Message::Variable(v, kind) => Message::Variable(v, kind),
+            Message::Constant(c, kind) => Message::Constant(c, kind),
+            Message::Composition(func, args) => Message::Composition(
+                func.map(|&id| box self.resolve_full(id)),
+                args.into_iter()
+                    .map(|arg| box self.resolve_full(arg))
+                    .collect(),
+            ),
+            Message::Tuple(ts) => {
+                Message::Tuple(ts.into_iter().map(|t| box self.resolve_full(t)).collect())
+            }
+        };
+        FullMessage(msg)
     }
 }
 
@@ -392,8 +395,8 @@ fn less_basic_unification() -> Result<(), ()> {
     assert_eq!(
         unifier.resolve_full(a),
         FullMessage(Message::Tuple(vec![
-            FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
-            FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
+            box FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
+            box FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
         ]))
     );
 
@@ -429,8 +432,8 @@ fn unify_simple_composition() -> Result<(), ()> {
         FullMessage(Message::Composition(
             Func::Exp,
             vec![
-                FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
-                FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
+                box FullMessage(Message::Constant(ConstantId(0, None), Kind::Other)),
+                box FullMessage(Message::Constant(ConstantId(1, None), Kind::Other))
             ]
         ))
     );
@@ -654,20 +657,23 @@ impl<'a> Converter<'a> {
         }
     }
     pub fn get_function_constant(&mut self, func: Func) -> MessageId {
-        *self
-            .mappings
-            .func_table
-            .entry(func.clone())
-            .or_insert_with(|| {
-                let cid = ConstantId(
-                    self.mappings.next_constant,
-                    Some(format!("{:?}", func).into()),
-                );
-                self.mappings.next_constant += 1;
-                self.unifier
-                    .table
-                    .new_key(Message::Constant(cid, Kind::Other))
-            })
+        match func {
+            Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => *self
+                .mappings
+                .func_table
+                .entry(func.clone())
+                .or_insert_with(|| {
+                    let cid = ConstantId(
+                        self.mappings.next_constant,
+                        Some(format!("{:?}", func).into()),
+                    );
+                    self.mappings.next_constant += 1;
+                    self.unifier
+                        .table
+                        .new_key(Message::Constant(cid, Kind::Other))
+                }),
+            Func::User(c) => self.register_global_constant_msg(c.as_str()),
+        }
     }
 
     pub fn register_global_constant(&mut self, constant_name: &str) -> ConstantId {
@@ -783,7 +789,7 @@ impl<'a> Converter<'a> {
                         Func::AsymEnc => Func::AsymEnc,
                         Func::Exp => Func::Exp,
                         Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant(u.as_str())),
+                        Func::User(u) => Func::User(self.register_global_constant_msg(u.as_str())),
                     },
                     args.into_iter()
                         .map(|arg| self.register_typed_message(for_who, initiations, arg))
@@ -815,7 +821,7 @@ impl<'a> Converter<'a> {
                         Func::AsymEnc => Func::AsymEnc,
                         Func::Exp => Func::Exp,
                         Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant(u.as_str())),
+                        Func::User(u) => Func::User(self.register_global_constant_msg(u.as_str())),
                     },
                     args.into_iter()
                         .map(|t| self.register_ast_message(t))
