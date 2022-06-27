@@ -5,10 +5,7 @@ use itertools::Itertools;
 use macor_parse::ast::{self, Ident};
 use smol_str::SmolStr;
 
-use crate::{
-    dolev_yao_old::Knowledge,
-    typing::{Stage, Type, TypedStage, TypingContext, TypingError, UntypedStage},
-};
+use crate::typing::{Stage, Type, TypedStage, TypingContext, TypingError, UntypedStage};
 
 #[derive(PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
 pub struct AgentName(pub Ident<SmolStr>);
@@ -146,6 +143,32 @@ impl<'a> IntoIterator for &'a Message {
 impl Message {
     pub fn iter(&self) -> impl Iterator<Item = &Term> {
         self.into_iter()
+    }
+}
+
+#[derive(Eq, Debug, Clone, PartialOrd, Ord, Hash, PartialEq)]
+pub struct Knowledge<S: Stage = TypedStage>(Vec<Term<S>>);
+
+impl Knowledge<TypedStage> {
+    fn new(terms: Vec<Term<TypedStage>>) -> Self {
+        Knowledge(terms)
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &Term<TypedStage>> {
+        self.0.iter()
+    }
+}
+
+impl<'a> From<&[ast::Term<&'a str>]> for Knowledge<UntypedStage<'a>> {
+    fn from(knowledge: &[ast::Term<&'a str>]) -> Self {
+        Self(knowledge.iter().cloned().map(Term::from).collect())
+    }
+}
+
+impl Knowledge<UntypedStage<'_>> {
+    pub fn to_typed(&self, ctx: &mut TypingContext) -> Knowledge<TypedStage> {
+        let terms: Vec<Term<TypedStage>> = self.0.iter().map(|term| term.to_typed(ctx)).collect();
+
+        Knowledge::<TypedStage>::new(terms)
     }
 }
 
@@ -354,13 +377,6 @@ impl Protocol {
     }
 }
 impl<T> Func<T> {
-    pub(crate) fn is_public(&self) -> bool {
-        match self {
-            Func::SymEnc | Func::AsymEnc | Func::Exp => true,
-            Func::Inv => false,
-            Func::User(_) => false,
-        }
-    }
     pub fn map<S>(&self, f: impl FnOnce(&T) -> S) -> Func<S> {
         match self {
             Func::SymEnc => Func::SymEnc,

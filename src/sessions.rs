@@ -82,7 +82,7 @@ impl Session {
                 continue;
             }
 
-            for term in &agent.initial_knowledge.0 {
+            for term in agent.initial_knowledge.iter() {
                 let term = term.replace_agent_with_intruder(&agent.name);
                 let registered_term = ctx.register_typed_term(
                     &ForWho::Intruder(session_id),

@@ -1,7 +1,6 @@
 #![feature(box_syntax, box_patterns, never_type, concat_idents)]
 
 pub mod dolev_yao;
-pub mod dolev_yao_old;
 pub mod evaluation;
 pub mod execution;
 pub mod lower;

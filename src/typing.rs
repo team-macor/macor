@@ -3,10 +3,7 @@ use std::{collections::HashMap, hash::Hash, marker::PhantomData};
 use macor_parse::ast::Ident;
 use miette::SourceSpan;
 
-use crate::{
-    dolev_yao_old::Knowledge,
-    protocol::{AgentName, Constant, Func, Term, Variable},
-};
+use crate::protocol::{AgentName, Constant, Func, Term, Variable};
 
 pub trait Stage: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash {
     type Constant: PartialEq + Eq + std::fmt::Debug + Clone + PartialOrd + Ord + Hash;
@@ -230,13 +227,5 @@ impl Term<UntypedStage<'_>> {
             },
             Term::Tuple(xs) => Term::Tuple(xs.iter().map(|x| x.to_typed(ctx)).collect()),
         }
-    }
-}
-
-impl Knowledge<UntypedStage<'_>> {
-    pub fn to_typed(&self, ctx: &mut TypingContext) -> Knowledge<TypedStage> {
-        let terms: Vec<Term<TypedStage>> = self.0.iter().map(|term| term.to_typed(ctx)).collect();
-
-        Knowledge::<TypedStage>::new(terms)
     }
 }
