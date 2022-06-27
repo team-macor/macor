@@ -109,7 +109,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
 mod tests {
     use itertools::Itertools;
 
-    use crate::{lower::Converter, messages::Knowledge};
+    use crate::{lower::LoweringContext, messages::Knowledge};
 
     // TODO: needs to handle term with commas like {|A, B|} as 1 term (call parser)
     macro_rules! scenario {
@@ -122,18 +122,18 @@ mod tests {
 
             let mut unifier = Default::default();
             let mut mapper = Default::default();
-            let mut converter = Converter::new(&mut unifier, &mut mapper);
+            let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
 
             let mut knowledge = Knowledge(
                 knowledge
                     .into_iter()
-                    .map(|k| converter.register_ast_term(k.into()))
+                    .map(|k| ctx.register_ast_term(k.into()))
                     .collect_vec(),
             );
 
             let goals = goals
                 .into_iter()
-                .map(|(g, b)| (b, converter.register_ast_term(g.into())))
+                .map(|(g, b)| (b, ctx.register_ast_term(g.into())))
                 .collect_vec();
 
             crate::dolev_yao::augment_knowledge(&mut knowledge, &mut unifier);

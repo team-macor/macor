@@ -5,7 +5,7 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    lower::Converter,
+    lower::LoweringContext,
     messages::{FullTerm, Knowledge, TermId, Unifier},
     protocol::{Direction, Protocol, SessionId},
     sessions::Session,
@@ -51,9 +51,9 @@ impl Protocol {
     pub fn validate(&self, src: &str) -> Vec<ValidateError> {
         let mut unifier = Default::default();
         let mut mapper = Default::default();
-        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
 
-        let session = Session::new(self, SessionId(0), &mut converter);
+        let session = Session::new(self, SessionId(0), &mut ctx);
 
         validate(src, &mut unifier, &session)
     }

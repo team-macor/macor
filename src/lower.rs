@@ -20,7 +20,7 @@ struct VariableKey {
 }
 
 #[derive(Debug)]
-pub struct Converter<'a> {
+pub struct LoweringContext<'a> {
     pub unifier: &'a mut Unifier,
     pub mappings: &'a mut Mappings,
 }
@@ -35,7 +35,7 @@ pub struct Mappings {
     variable_table: IndexMap<VariableKey, TermId>,
 }
 
-impl<'a> Converter<'a> {
+impl<'a> LoweringContext<'a> {
     pub fn new(unifier: &'a mut Unifier, mappings: &'a mut Mappings) -> Self {
         Self { unifier, mappings }
     }

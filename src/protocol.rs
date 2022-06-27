@@ -154,6 +154,14 @@ pub enum Direction {
     Ingoing,
     Outgoing,
 }
+impl Direction {
+    pub fn is_outgoing(&self) -> bool {
+        matches!(self, Direction::Outgoing)
+    }
+    pub fn is_ingoing(&self) -> bool {
+        matches!(self, Direction::Ingoing)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketPattern {

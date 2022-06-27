@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::{
     execution::{Execution, ExecutionTraceEntry, TraceEntry},
-    lower::Converter,
+    lower::LoweringContext,
     messages::{FullTerm, Kind, Term, Unifier},
     protocol::{Func, Protocol, SessionId},
     sessions::Session,
@@ -122,9 +122,9 @@ impl Verifier {
 
         let mut unifier = Unifier::default();
         let mut mapper = Default::default();
-        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
         let sessions = (0..self.num_sessions)
-            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
+            .map(|i| Session::new(&protocol, SessionId(i), &mut ctx))
             .collect_vec()
             .into();
 
@@ -141,9 +141,9 @@ impl Verifier {
 
         let mut unifier = Default::default();
         let mut mapper = Default::default();
-        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
         let sessions = (0..self.num_sessions)
-            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
+            .map(|i| Session::new(&protocol, SessionId(i), &mut ctx))
             .collect_vec()
             .into();
 
@@ -216,9 +216,9 @@ impl Verifier {
 
         let mut unifier = Default::default();
         let mut mapper = Default::default();
-        let mut converter = Converter::new(&mut unifier, &mut mapper);
+        let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
         let sessions = (0..self.num_sessions)
-            .map(|i| Session::new(&protocol, SessionId(i), &mut converter))
+            .map(|i| Session::new(&protocol, SessionId(i), &mut ctx))
             .collect_vec()
             .into();
 

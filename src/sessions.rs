@@ -3,7 +3,7 @@ use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 
 use crate::{
-    lower::{Converter, ForWho},
+    lower::{ForWho, LoweringContext},
     messages::{Knowledge, TermId, Unifier},
     protocol::{self, Direction, Protocol, ProtocolAgent, SessionId},
 };
@@ -40,11 +40,11 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(protocol: &Protocol, session_id: SessionId, converter: &mut Converter) -> Session {
+    pub fn new(protocol: &Protocol, session_id: SessionId, ctx: &mut LoweringContext) -> Session {
         let roles = protocol
             .agents
             .iter()
-            .map(|agent| Role::new(protocol, session_id, converter, agent))
+            .map(|agent| Role::new(protocol, session_id, ctx, agent))
             .collect_vec();
 
         let secrets = protocol
@@ -56,9 +56,9 @@ impl Session {
                     .map(|term| Secret {
                         between_agents: agents
                             .iter()
-                            .map(|agent| converter.get_agent(&ForWho::Intruder(session_id), agent))
+                            .map(|agent| ctx.get_agent(&ForWho::Intruder(session_id), agent))
                             .collect(),
-                        term: converter.register_typed_term(
+                        term: ctx.register_typed_term(
                             &ForWho::Intruder(session_id),
                             &protocol.initiations,
                             term.clone(),
@@ -84,7 +84,7 @@ impl Session {
 
             for term in &agent.initial_knowledge.0 {
                 let term = term.replace_agent_with_intruder(&agent.name);
-                let registered_term = converter.register_typed_term(
+                let registered_term = ctx.register_typed_term(
                     &ForWho::Intruder(session_id),
                     &protocol.initiations,
                     term.clone(),
@@ -93,7 +93,7 @@ impl Session {
                 if intruder_knowledge
                     .0
                     .iter()
-                    .all(|&term| !converter.unifier.are_unified(term, registered_term))
+                    .all(|&term| !ctx.unifier.are_unified(term, registered_term))
                 {
                     intruder_knowledge.0.push(registered_term);
                 }
@@ -147,7 +147,7 @@ impl Role {
     pub fn new(
         protocol: &Protocol,
         session_id: SessionId,
-        converter: &mut Converter,
+        ctx: &mut LoweringContext,
         agent: &ProtocolAgent,
     ) -> Role {
         let for_who = ForWho::Agent(session_id, agent.name.clone());
@@ -155,26 +155,20 @@ impl Role {
         let mut initial_knowledge: Vec<_> = agent
             .initial_knowledge
             .iter()
-            .map(|term| {
-                converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
-            })
+            .map(|t| ctx.register_typed_term(&for_who, &protocol.initiations, t.clone()))
             .collect();
 
-        let initiates = agent.terms.iter().flat_map(|pattern| {
-            if pattern.direction == Direction::Outgoing {
-                pattern.initiates.clone()
-            } else {
-                Default::default()
-            }
-        });
+        let initiates = agent
+            .terms
+            .iter()
+            .filter_map(|p| p.direction.is_outgoing().then(|| p.initiates.clone()))
+            .flatten();
 
         initial_knowledge.extend(
-            initiates.map(|var| {
-                converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
-            }),
+            initiates.map(|var| ctx.initiate_typed_variable(&for_who, &protocol.initiations, &var)),
         );
 
-        initial_knowledge.sort_unstable_by_key(|term| converter.unifier.resolve_full(*term));
+        initial_knowledge.sort_unstable_by_key(|term| ctx.unifier.resolve_full(*term));
         initial_knowledge.dedup();
 
         let strand = agent
@@ -182,22 +176,20 @@ impl Role {
             .iter()
             .map(|pattern| Transaction {
                 ast_node: pattern.clone(),
-                sender: converter.get_agent(&for_who, &pattern.from),
-                receiver: converter.get_agent(&for_who, &pattern.to),
+                sender: ctx.get_agent(&for_who, &pattern.from),
+                receiver: ctx.get_agent(&for_who, &pattern.to),
                 direction: pattern.direction,
                 terms: pattern
                     .packet
                     .iter()
-                    .map(|term| {
-                        converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
-                    })
+                    .map(|t| ctx.register_typed_term(&for_who, &protocol.initiations, t.clone()))
                     .collect(),
             })
             .collect();
 
         Role {
             name: agent.name.0.clone(),
-            agent_id: converter.get_agent(&for_who, &agent.name),
+            agent_id: ctx.get_agent(&for_who, &agent.name),
             initial_knowledge: Knowledge(initial_knowledge),
             strand,
         }
