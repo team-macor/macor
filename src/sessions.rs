@@ -18,7 +18,7 @@ pub struct Transaction {
 }
 
 #[derive(Debug, Clone)]
-pub struct SessionAgent {
+pub struct Role {
     pub name: Ident<SmolStr>,
     pub agent_id: TermId,
     pub initial_knowledge: Knowledge,
@@ -34,17 +34,17 @@ pub struct Secret {
 #[derive(Debug, Clone)]
 pub struct Session {
     pub session_id: SessionId,
-    pub agents: Vec<SessionAgent>,
+    pub roles: Vec<Role>,
     pub intruder_knowledge: Knowledge,
     pub secrets: Vec<Secret>,
 }
 
 impl Session {
     pub fn new(protocol: &Protocol, session_id: SessionId, converter: &mut Converter) -> Session {
-        let agents = protocol
+        let roles = protocol
             .agents
             .iter()
-            .map(|agent| SessionAgent::new(protocol, session_id, converter, agent))
+            .map(|agent| Role::new(protocol, session_id, converter, agent))
             .collect_vec();
 
         let secrets = protocol
@@ -74,8 +74,8 @@ impl Session {
 
         let mut intruder_knowledge = Knowledge::default();
 
-        for agent in &agents {
-            intruder_knowledge.0.push(agent.agent_id);
+        for role in &roles {
+            intruder_knowledge.0.push(role.agent_id);
         }
         for agent in &protocol.agents {
             if agent.name.0.is_constant() {
@@ -102,7 +102,7 @@ impl Session {
 
         Session {
             session_id,
-            agents,
+            roles,
             intruder_knowledge,
             secrets,
         }
@@ -112,19 +112,18 @@ impl Session {
         println!("#############");
         println!("# SESSION {} #", self.session_id.0);
         println!("#############");
-        for agent in &self.agents {
+        for role in &self.roles {
             println!();
-            println!("> {} ({:?})", agent.name, agent.agent_id);
+            println!("> {} ({:?})", role.name, role.agent_id);
             println!(
                 "> IK: {:?}",
-                agent
-                    .initial_knowledge
+                role.initial_knowledge
                     .0
                     .iter()
                     .map(|&term| unifier.resolve_full(term))
                     .collect_vec()
             );
-            for t in &agent.strand {
+            for t in &role.strand {
                 println!(
                     ">> {:?}->{:?}: {:?}",
                     unifier.resolve_full(t.sender),
@@ -144,13 +143,13 @@ impl Session {
     }
 }
 
-impl SessionAgent {
+impl Role {
     pub fn new(
         protocol: &Protocol,
         session_id: SessionId,
         converter: &mut Converter,
         agent: &ProtocolAgent,
-    ) -> SessionAgent {
+    ) -> Role {
         let for_who = ForWho::Agent(session_id, agent.name.clone());
 
         let mut initial_knowledge: Vec<_> = agent
@@ -196,7 +195,7 @@ impl SessionAgent {
             })
             .collect();
 
-        SessionAgent {
+        Role {
             name: agent.name.0.clone(),
             agent_id: converter.get_agent(&for_who, &agent.name),
             initial_knowledge: Knowledge(initial_knowledge),

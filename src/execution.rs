@@ -150,10 +150,10 @@ impl Execution {
             .iter()
             .map(|session| ExecutionSessionState {
                 agents: session
-                    .agents
+                    .roles
                     .iter()
-                    .map(|agent| ExecutionAgentState {
-                        agent_id: agent.agent_id,
+                    .map(|role| ExecutionAgentState {
+                        agent_id: role.agent_id,
                         current_execution: 0,
                         inbox: Default::default(),
                     })
@@ -197,12 +197,12 @@ impl Execution {
             .take(num_used_sessions + 1)
             .flat_map(move |(session_i, (session, session_state))| {
                 session
-                    .agents
+                    .roles
                     .iter()
                     .zip_eq(session_state.agents.iter())
                     .enumerate()
-                    .flat_map(move |(agent_i, (agent, state))| {
-                        if let Some(transaction) = agent.strand.get(state.current_execution) {
+                    .flat_map(move |(agent_i, (role, state))| {
+                        if let Some(transaction) = role.strand.get(state.current_execution) {
                             match transaction.direction {
                                 Direction::Outgoing => {
                                     let mut new = self.clone();
@@ -217,8 +217,8 @@ impl Execution {
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: Some((
-                                                    agent.name.as_str().into(),
-                                                    agent.agent_id,
+                                                    role.name.as_str().into(),
+                                                    role.agent_id,
                                                 )),
                                                 receiver: None,
                                                 terms: transaction.terms.clone(),
@@ -237,15 +237,15 @@ impl Execution {
                                             TraceEntry {
                                                 session: session.session_id,
                                                 sender: Some((
-                                                    agent.name.as_str().into(),
-                                                    agent.agent_id,
+                                                    role.name.as_str().into(),
+                                                    role.agent_id,
                                                 )),
                                                 receiver: Some((
-                                                    self.sessions[session_i].agents[receiver_i]
+                                                    self.sessions[session_i].roles[receiver_i]
                                                         .name
                                                         .as_str()
                                                         .into(),
-                                                    self.sessions[session_i].agents[receiver_i]
+                                                    self.sessions[session_i].roles[receiver_i]
                                                         .agent_id,
                                                 )),
                                                 terms: transaction.terms.clone(),
@@ -301,7 +301,7 @@ impl Execution {
                                                     session: SessionId(session_i as _),
                                                     sender: None,
                                                     receiver: Some((
-                                                        new.sessions[session_i].agents[agent_i]
+                                                        new.sessions[session_i].roles[agent_i]
                                                             .name
                                                             .clone()
                                                             .into(),

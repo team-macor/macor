@@ -63,11 +63,11 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
     let mut errors = vec![];
 
     let mut agent_states = session
-        .agents
+        .roles
         .iter()
-        .map(|agent| AgentState {
-            id: agent.agent_id,
-            knowledge: agent.initial_knowledge.clone(),
+        .map(|role| AgentState {
+            id: role.agent_id,
+            knowledge: role.initial_knowledge.clone(),
             step: 0,
         })
         .collect_vec();
@@ -75,7 +75,7 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
     loop {
         let mut did_progress = false;
 
-        for (sender_i, sender) in session.agents.iter().enumerate() {
+        for (sender_i, sender) in session.roles.iter().enumerate() {
             let sender_state = &agent_states[sender_i];
 
             if sender.strand.len() == sender_state.step {
@@ -98,7 +98,7 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                     .iter()
                     .position(|a| a.id == sender_term.receiver)
                 {
-                    let recipient = &session.agents[recipient_i];
+                    let recipient = &session.roles[recipient_i];
                     let recipient_state = &agent_states[recipient_i];
 
                     if recipient.strand.len() == recipient_state.step {
