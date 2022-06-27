@@ -130,7 +130,9 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                         if !sender_state.knowledge.can_construct(unifier, *term) {
                             errors.push(ValidateError::TermIsNotConstructable {
                                 src: src.to_string(),
-                                err_span: sender_term.ast_node.packet.terms[term_i].span().unwrap(),
+                                err_span: sender_term.ast_node.message.terms[term_i]
+                                    .span()
+                                    .unwrap(),
                                 agent: sender.name.clone(),
                                 term: unifier.resolve_full(sender_term.terms[term_i]),
                                 knowledge: sender_state

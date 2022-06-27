@@ -238,11 +238,11 @@ impl Backend {
                             .find_map(|term| self.find_term(byte_offset, term))
                     })
                     .or_else(|| {
-                        agent.terms.iter().find_map(|pat| {
+                        agent.messages.iter().find_map(|pat| {
                             self.find_agent(byte_offset, &pat.from)
                                 .or_else(|| self.find_agent(byte_offset, &pat.to))
                                 .or_else(|| {
-                                    pat.packet
+                                    pat.message
                                         .iter()
                                         .find_map(|term| self.find_term(byte_offset, term))
                                 })

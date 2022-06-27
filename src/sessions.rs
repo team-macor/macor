@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Transaction {
-    pub ast_node: protocol::PacketPattern,
+    pub ast_node: protocol::MessagePattern,
     pub sender: TermId,
     pub receiver: TermId,
     pub direction: Direction,
@@ -159,7 +159,7 @@ impl Role {
             .collect();
 
         let initiates = agent
-            .terms
+            .messages
             .iter()
             .filter_map(|p| p.direction.is_outgoing().then(|| p.initiates.clone()))
             .flatten();
@@ -172,7 +172,7 @@ impl Role {
         initial_knowledge.dedup();
 
         let strand = agent
-            .terms
+            .messages
             .iter()
             .map(|pattern| Transaction {
                 ast_node: pattern.clone(),
@@ -180,7 +180,7 @@ impl Role {
                 receiver: ctx.get_agent(&for_who, &pattern.to),
                 direction: pattern.direction,
                 terms: pattern
-                    .packet
+                    .message
                     .iter()
                     .map(|t| ctx.register_typed_term(&for_who, &protocol.initiations, t.clone()))
                     .collect(),

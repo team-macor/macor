@@ -113,19 +113,19 @@ pub enum Constant {
 pub struct Nonce(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Packet {
+pub struct Message {
     pub terms: Vec<Term>,
 }
 
-impl FromIterator<Term> for Packet {
+impl FromIterator<Term> for Message {
     fn from_iter<T: IntoIterator<Item = Term>>(iter: T) -> Self {
-        Packet {
+        Message {
             terms: iter.into_iter().collect(),
         }
     }
 }
 
-impl IntoIterator for Packet {
+impl IntoIterator for Message {
     type Item = Term;
 
     type IntoIter = std::vec::IntoIter<Term>;
@@ -134,7 +134,7 @@ impl IntoIterator for Packet {
         self.terms.into_iter()
     }
 }
-impl<'a> IntoIterator for &'a Packet {
+impl<'a> IntoIterator for &'a Message {
     type Item = &'a Term;
 
     type IntoIter = std::slice::Iter<'a, Term>;
@@ -143,7 +143,7 @@ impl<'a> IntoIterator for &'a Packet {
         self.terms.iter()
     }
 }
-impl Packet {
+impl Message {
     pub fn iter(&self) -> impl Iterator<Item = &Term> {
         self.into_iter()
     }
@@ -164,11 +164,11 @@ impl Direction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PacketPattern {
+pub struct MessagePattern {
     pub from: AgentName,
     pub to: AgentName,
     pub direction: Direction,
-    pub packet: Packet,
+    pub message: Message,
     pub initiates: IndexSet<Variable>,
 }
 
@@ -183,7 +183,7 @@ pub struct ProtocolAgent {
     pub name: AgentName,
     pub kind: AgentKind,
     pub initial_knowledge: Knowledge,
-    pub terms: Vec<PacketPattern>,
+    pub messages: Vec<MessagePattern>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -223,7 +223,7 @@ impl Protocol {
                 AgentKind::Variable
             },
             initial_knowledge: k.to_typed(ctx),
-            terms: actions
+            messages: actions
                 .iter()
                 .filter_map(|a| {
                     let direction = if &a.from == agent {
@@ -234,11 +234,11 @@ impl Protocol {
                         return None;
                     };
 
-                    Some(PacketPattern {
+                    Some(MessagePattern {
                         from: AgentName(a.from.convert()),
                         to: AgentName(a.to.convert()),
                         direction,
-                        packet: a.terms.iter().cloned().collect(),
+                        message: a.terms.iter().cloned().collect(),
                         initiates: a.initiates.clone(),
                     })
                 })
