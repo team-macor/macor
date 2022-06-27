@@ -1,5 +1,5 @@
-use crate::messages::{Knowledge, Term, TermId, Unifier};
 use crate::protocol::Func;
+use crate::terms::{Knowledge, Term, TermId, Unifier};
 
 pub fn can_derive(knowledge: &Knowledge, goal: TermId, unifier: &mut Unifier) -> bool {
     let mut stack = vec![goal];
@@ -109,7 +109,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
 mod tests {
     use itertools::Itertools;
 
-    use crate::{lower::LoweringContext, messages::Knowledge};
+    use crate::{lower::LoweringContext, terms::Knowledge};
 
     // TODO: needs to handle term with commas like {|A, B|} as 1 term (call parser)
     macro_rules! scenario {

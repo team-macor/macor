@@ -3,8 +3,8 @@ use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 
 use crate::{
-    messages::{ConstantId, Kind, Term, TermId, Unifier},
     protocol::{self, AgentName, Func, SessionId},
+    terms::{ConstantId, Kind, Term, TermId, Unifier},
 };
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

@@ -6,9 +6,9 @@ use smol_str::SmolStr;
 use crate::{
     dolev_yao,
     lower::LoweringContext,
-    messages::{FullTerm, Knowledge, TermId, Unifier},
     protocol::{Direction, Protocol, SessionId},
     sessions::Session,
+    terms::{FullTerm, Knowledge, TermId, Unifier},
 };
 
 struct AgentState {

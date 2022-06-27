@@ -5,9 +5,9 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    messages::{Knowledge, TermId, Unifier},
     protocol::{Direction, SessionId},
     sessions::Session,
+    terms::{Knowledge, TermId, Unifier},
 };
 
 type Rc<T> = std::sync::Arc<T>;

@@ -4,8 +4,8 @@ use smol_str::SmolStr;
 
 use crate::{
     lower::{ForWho, LoweringContext},
-    messages::{Knowledge, TermId, Unifier},
     protocol::{self, Direction, Protocol, ProtocolAgent, SessionId},
+    terms::{Knowledge, TermId, Unifier},
 };
 
 #[derive(Debug, Clone)]

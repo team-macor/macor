@@ -5,9 +5,9 @@ use itertools::Itertools;
 use crate::{
     execution::{Execution, ExecutionTraceEntry, TraceEntry},
     lower::LoweringContext,
-    messages::{FullTerm, Kind, Term, Unifier},
     protocol::{Func, Protocol, SessionId},
     sessions::Session,
+    terms::{FullTerm, Kind, Term, Unifier},
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
 
