@@ -189,7 +189,7 @@ impl std::fmt::Debug for FullTerm {
 }
 
 impl UnifyValue for Term<TermId> {
-    type Error = ();
+    type Error = UnificationError;
 
     fn unify_values(l: &Self, r: &Self) -> Result<Self, Self::Error> {
         Ok(match (l, r) {
@@ -197,14 +197,14 @@ impl UnifyValue for Term<TermId> {
                 if lk == rk {
                     Variable(l.join(r), *lk)
                 } else {
-                    return Err(());
+                    return Err(UnificationError::DidNotUnify);
                 }
             }
             (Variable(_, vk), Constant(c, ck)) | (Constant(c, ck), Variable(_, vk)) => {
                 if ck == vk {
                     Constant(c.clone(), *ck)
                 } else {
-                    return Err(());
+                    return Err(UnificationError::DidNotUnify);
                 }
             }
             (Variable(_, Kind::Other), Composition(func, args))
@@ -218,24 +218,24 @@ impl UnifyValue for Term<TermId> {
                 if l == r && lk == rk {
                     Constant(l.clone(), *lk)
                 } else {
-                    return Err(());
+                    return Err(UnificationError::DidNotUnify);
                 }
             }
             (Composition(l_func, l_args), Composition(r_func, r_args)) => {
                 if l_func != r_func && l_args.len() == r_args.len() {
-                    return Err(());
+                    return Err(UnificationError::DidNotUnify);
                 } else {
                     Composition(l_func.clone(), l_args.clone())
                 }
             }
             (Tuple(ls), Tuple(rs)) => {
                 if ls.len() != rs.len() {
-                    return Err(());
+                    return Err(UnificationError::DidNotUnify);
                 } else {
                     Tuple(ls.clone())
                 }
             }
-            _ => return Err(()),
+            _ => return Err(UnificationError::DidNotUnify),
         })
     }
 }
@@ -275,6 +275,12 @@ impl Default for Unifier {
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UnificationError {
+    #[error("the terms did not unify")]
+    DidNotUnify,
+}
+
 impl Unifier {
     pub fn intruder(&self) -> TermId {
         self.intruder
@@ -299,20 +305,20 @@ impl Unifier {
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
-    pub fn unify(&mut self, l: TermId, r: TermId) -> Result<TermId, ()> {
+    pub fn unify(&mut self, l: TermId, r: TermId) -> Result<TermId, UnificationError> {
         let snap = self.table.snapshot();
         match self.unify_inner(l, r) {
             Ok(v) => {
                 self.table.commit(snap);
                 Ok(v)
             }
-            Err(()) => {
+            Err(e) => {
                 self.table.rollback_to(snap);
-                Err(())
+                Err(e)
             }
         }
     }
-    fn unify_inner(&mut self, l: TermId, r: TermId) -> Result<TermId, ()> {
+    fn unify_inner(&mut self, l: TermId, r: TermId) -> Result<TermId, UnificationError> {
         Ok(
             match (self.table.probe_value(l), self.table.probe_value(r)) {
                 (x @ Variable(_, _), y) | (y, x @ Variable(_, _)) if x.kind() == y.kind() => {
@@ -323,7 +329,7 @@ impl Unifier {
                     if x == y && xk == yk {
                         l
                     } else {
-                        return Err(());
+                        return Err(UnificationError::DidNotUnify);
                     }
                 }
                 (Composition(l_func, l_args), Composition(r_func, r_args)) => {
@@ -333,7 +339,7 @@ impl Unifier {
                         //     self.resolve_full(l),
                         //     self.resolve_full(r)
                         // );
-                        return Err(());
+                        return Err(UnificationError::DidNotUnify);
                     } else {
                         for (l_arg, r_arg) in l_args.into_iter().zip_eq(r_args) {
                             self.unify_inner(l_arg, r_arg)?;
@@ -344,7 +350,7 @@ impl Unifier {
                 }
                 (Tuple(ls), Tuple(rs)) => {
                     if ls.len() != rs.len() {
-                        return Err(());
+                        return Err(UnificationError::DidNotUnify);
                     } else {
                         for (l_arg, r_arg) in ls.into_iter().zip_eq(rs) {
                             self.unify_inner(l_arg, r_arg)?;
@@ -353,7 +359,7 @@ impl Unifier {
                         l
                     }
                 }
-                _ => return Err(()),
+                _ => return Err(UnificationError::DidNotUnify),
             },
         )
     }
@@ -384,7 +390,7 @@ impl Unifier {
             (x, y) => x == y,
         }
     }
-    // pub fn try_unify(&mut self, a: TermId, b: TermId) -> Result<(), ()> {
+    // pub fn try_unify(&mut self, a: TermId, b: TermId) -> Result<(), UnificationError> {
     //     // TODO: Should this be recursive?
     //     if self.table.unioned(a, b) {
     //         return Ok(());
@@ -432,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn very_basic_unification() -> Result<(), ()> {
+    fn very_basic_unification() -> Result<(), UnificationError> {
         let mut unifier = Unifier::default();
 
         let a = unifier.constant(0);
@@ -450,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn less_basic_unification() -> Result<(), ()> {
+    fn less_basic_unification() -> Result<(), UnificationError> {
         let mut unifier = Unifier::default();
 
         let x = unifier.constant(0);
@@ -477,7 +483,7 @@ mod tests {
     }
 
     #[test]
-    fn unify_simple_composition() -> Result<(), ()> {
+    fn unify_simple_composition() -> Result<(), UnificationError> {
         let mut unifier = Unifier::default();
 
         let x = unifier.constant(0);
@@ -522,11 +528,11 @@ mod tests {
         let a = unifier.table.new_key(Tuple(vec![y, free]));
         let b = unifier.table.new_key(Tuple(vec![x, y]));
 
-        assert_eq!(unifier.unify(a, b), Err(()));
+        assert_eq!(unifier.unify(a, b), Err(UnificationError::DidNotUnify));
     }
 
     #[test]
-    fn branching_unification() -> Result<(), ()> {
+    fn branching_unification() -> Result<(), UnificationError> {
         let mut unifier = Unifier::default();
 
         let x = unifier.constant(1);
@@ -553,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn rollback_unification() -> Result<(), ()> {
+    fn rollback_unification() -> Result<(), UnificationError> {
         let mut unifier = Unifier::default();
 
         let x = unifier.constant(1);
