@@ -5,9 +5,8 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    lower::{Converter, ForWho, Mappings},
     messages::{Knowledge, TermId, Unifier},
-    protocol::{Direction, Protocol, SessionId},
+    protocol::{Direction, SessionId},
     sessions::Session,
 };
 
@@ -146,12 +145,7 @@ pub struct Execution {
 }
 
 impl Execution {
-    pub fn new(
-        protocol: &Protocol,
-        mappings: &mut Mappings,
-        mut unifier: Unifier,
-        sessions: Rc<Vec<Session>>,
-    ) -> Self {
+    pub fn new(unifier: Unifier, sessions: Rc<Vec<Session>>) -> Self {
         let states = sessions
             .iter()
             .map(|session| ExecutionSessionState {
@@ -167,37 +161,13 @@ impl Execution {
             })
             .collect();
 
-        let mut converter = Converter::new(&mut unifier, mappings);
         let mut intruder = Intruder::default();
 
-        for session in sessions.iter() {
-            for agent in &session.agents {
-                intruder.knowledge.0.push(agent.agent_id);
-            }
-            for agent in &protocol.agents {
-                if agent.name.0.is_constant() {
-                    continue;
-                }
-
-                for term in &agent.initial_knowledge.0 {
-                    let term = term.replace_agent_with_intruder(&agent.name);
-                    let registered_term = converter.register_typed_term(
-                        &ForWho::Intruder(session.session_id),
-                        &protocol.initiations,
-                        term.clone(),
-                    );
-
-                    if intruder
-                        .knowledge
-                        .0
-                        .iter()
-                        .all(|&term| !converter.unifier.are_unified(term, registered_term))
-                    {
-                        intruder.knowledge.0.push(registered_term);
-                    }
-                }
-            }
-        }
+        intruder.knowledge.0.extend(
+            sessions
+                .iter()
+                .flat_map(|session| session.intruder_knowledge.0.iter().cloned()),
+        );
 
         Execution {
             unifier,

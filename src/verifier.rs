@@ -128,7 +128,7 @@ impl Verifier {
             .collect_vec()
             .into();
 
-        Execution::new(&protocol, &mut mapper, unifier, sessions).print_sessions();
+        Execution::new(unifier, sessions).print_sessions();
 
         Ok(())
     }
@@ -147,12 +147,7 @@ impl Verifier {
             .collect_vec()
             .into();
 
-        let mut options = vec![Execution::new(
-            &protocol,
-            &mut mapper,
-            unifier.clone(),
-            sessions,
-        )];
+        let mut options = vec![Execution::new(unifier.clone(), sessions)];
 
         while !options.is_empty() {
             println!("================");
@@ -231,12 +226,7 @@ impl Verifier {
         let mut num_executions = 0;
 
         if self.parallel {
-            let mut list_a = vec![Execution::new(
-                &protocol,
-                &mut mapper,
-                unifier.clone(),
-                sessions,
-            )];
+            let mut list_a = vec![Execution::new(unifier.clone(), sessions)];
             let mut list_b = vec![];
 
             while !list_a.is_empty() {
@@ -276,12 +266,7 @@ impl Verifier {
             'iter: for iter in 0..num_iterations {
                 let mut worklist = VecDeque::new();
 
-                worklist.push_back(Execution::new(
-                    &protocol,
-                    &mut mapper,
-                    unifier.clone(),
-                    sessions.clone(),
-                ));
+                worklist.push_back(Execution::new(unifier.clone(), sessions.clone()));
 
                 while let Some(execution) = worklist.pop_front() {
                     // execution.print_trace();

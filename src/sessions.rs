@@ -5,7 +5,7 @@ use smol_str::SmolStr;
 use crate::{
     lower::{Converter, ForWho},
     messages::{Knowledge, TermId, Unifier},
-    protocol::{self, Direction, Protocol, SessionId},
+    protocol::{self, Direction, Protocol, ProtocolAgent, SessionId},
 };
 
 #[derive(Debug, Clone)]
@@ -35,6 +35,7 @@ pub struct Secret {
 pub struct Session {
     pub session_id: SessionId,
     pub agents: Vec<SessionAgent>,
+    pub intruder_knowledge: Knowledge,
     pub secrets: Vec<Secret>,
 }
 
@@ -43,60 +44,7 @@ impl Session {
         let agents = protocol
             .agents
             .iter()
-            .map(|agent| {
-                let for_who = ForWho::Agent(session_id, agent.name.clone());
-
-                let mut initial_knowledge: Vec<_> = agent
-                    .initial_knowledge
-                    .iter()
-                    .map(|term| {
-                        converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
-                    })
-                    .collect();
-
-                let initiates = agent.terms.iter().flat_map(|pattern| {
-                    if pattern.direction == Direction::Outgoing {
-                        pattern.initiates.clone()
-                    } else {
-                        Default::default()
-                    }
-                });
-
-                initial_knowledge.extend(initiates.map(|var| {
-                    converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
-                }));
-
-                initial_knowledge
-                    .sort_unstable_by_key(|term| converter.unifier.resolve_full(*term));
-                initial_knowledge.dedup();
-
-                SessionAgent {
-                    name: agent.name.0.clone(),
-                    agent_id: converter.get_agent(&for_who, &agent.name),
-                    initial_knowledge: Knowledge(initial_knowledge),
-                    strand: agent
-                        .terms
-                        .iter()
-                        .map(|pattern| Transaction {
-                            ast_node: pattern.clone(),
-                            sender: converter.get_agent(&for_who, &pattern.from),
-                            receiver: converter.get_agent(&for_who, &pattern.to),
-                            direction: pattern.direction,
-                            terms: pattern
-                                .packet
-                                .iter()
-                                .map(|term| {
-                                    converter.register_typed_term(
-                                        &for_who,
-                                        &protocol.initiations,
-                                        term.clone(),
-                                    )
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                }
-            })
+            .map(|agent| SessionAgent::new(protocol, session_id, converter, agent))
             .collect_vec();
 
         let secrets = protocol
@@ -124,9 +72,38 @@ impl Session {
             })
             .collect();
 
+        let mut intruder_knowledge = Knowledge::default();
+
+        for agent in &agents {
+            intruder_knowledge.0.push(agent.agent_id);
+        }
+        for agent in &protocol.agents {
+            if agent.name.0.is_constant() {
+                continue;
+            }
+
+            for term in &agent.initial_knowledge.0 {
+                let term = term.replace_agent_with_intruder(&agent.name);
+                let registered_term = converter.register_typed_term(
+                    &ForWho::Intruder(session_id),
+                    &protocol.initiations,
+                    term.clone(),
+                );
+
+                if intruder_knowledge
+                    .0
+                    .iter()
+                    .all(|&term| !converter.unifier.are_unified(term, registered_term))
+                {
+                    intruder_knowledge.0.push(registered_term);
+                }
+            }
+        }
+
         Session {
             session_id,
             agents,
+            intruder_knowledge,
             secrets,
         }
     }
@@ -163,6 +140,67 @@ impl Session {
         println!("=== SECRETS ===");
         for secret in &self.secrets {
             println!("{:?}", unifier.resolve_full(secret.term));
+        }
+    }
+}
+
+impl SessionAgent {
+    pub fn new(
+        protocol: &Protocol,
+        session_id: SessionId,
+        converter: &mut Converter,
+        agent: &ProtocolAgent,
+    ) -> SessionAgent {
+        let for_who = ForWho::Agent(session_id, agent.name.clone());
+
+        let mut initial_knowledge: Vec<_> = agent
+            .initial_knowledge
+            .iter()
+            .map(|term| {
+                converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
+            })
+            .collect();
+
+        let initiates = agent.terms.iter().flat_map(|pattern| {
+            if pattern.direction == Direction::Outgoing {
+                pattern.initiates.clone()
+            } else {
+                Default::default()
+            }
+        });
+
+        initial_knowledge.extend(
+            initiates.map(|var| {
+                converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
+            }),
+        );
+
+        initial_knowledge.sort_unstable_by_key(|term| converter.unifier.resolve_full(*term));
+        initial_knowledge.dedup();
+
+        let strand = agent
+            .terms
+            .iter()
+            .map(|pattern| Transaction {
+                ast_node: pattern.clone(),
+                sender: converter.get_agent(&for_who, &pattern.from),
+                receiver: converter.get_agent(&for_who, &pattern.to),
+                direction: pattern.direction,
+                terms: pattern
+                    .packet
+                    .iter()
+                    .map(|term| {
+                        converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
+                    })
+                    .collect(),
+            })
+            .collect();
+
+        SessionAgent {
+            name: agent.name.0.clone(),
+            agent_id: converter.get_agent(&for_who, &agent.name),
+            initial_knowledge: Knowledge(initial_knowledge),
+            strand,
         }
     }
 }
