@@ -302,6 +302,7 @@ impl Unifier {
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
     /// else produces and error.
+    #[inline(always)]
     pub fn unify(&mut self, l: TermId, r: TermId) -> Result<TermId, UnificationError> {
         let snap = self.table.snapshot();
         match self.unify_inner(l, r) {
@@ -407,16 +408,13 @@ impl Unifier {
     //     false
     // }
 
+    #[inline(always)]
     pub fn probe_value(&mut self, id: TermId) -> Term<TermId> {
-        self.table.probe_value(id)
+        self.table.inlined_probe_value(id)
     }
 
     pub fn resolve_full(&mut self, id: TermId) -> FullTerm {
-        FullTerm(
-            self.table
-                .probe_value(id)
-                .map(|&id| box self.resolve_full(id)),
-        )
+        FullTerm(self.probe_value(id).map(|&id| box self.resolve_full(id)))
     }
 }
 
@@ -462,8 +460,8 @@ mod tests {
         let y_free = unifier.variable();
         let x_free = unifier.variable();
 
-        let a = unifier.table.new_key(Tuple(vec![x, y_free]));
-        let b = unifier.table.new_key(Tuple(vec![x_free, y]));
+        let a = unifier.register_new_tuple(vec![x, y_free]);
+        let b = unifier.register_new_tuple(vec![x_free, y]);
 
         unifier.unify(a, b)?;
 
@@ -489,12 +487,8 @@ mod tests {
         let x_free = unifier.variable();
         let y_free = unifier.variable();
 
-        let a = unifier
-            .table
-            .new_key(Composition(Func::Exp, vec![x, y_free]));
-        let b = unifier
-            .table
-            .new_key(Composition(Func::Exp, vec![x_free, y]));
+        let a = unifier.register_new_composition(Func::Exp, vec![x, y_free]);
+        let b = unifier.register_new_composition(Func::Exp, vec![x_free, y]);
 
         unifier.unify(a, b)?;
 
@@ -522,8 +516,8 @@ mod tests {
 
         let free = unifier.variable();
 
-        let a = unifier.table.new_key(Tuple(vec![y, free]));
-        let b = unifier.table.new_key(Tuple(vec![x, y]));
+        let a = unifier.register_new_tuple(vec![y, free]);
+        let b = unifier.register_new_tuple(vec![x, y]);
 
         assert_eq!(unifier.unify(a, b), Err(UnificationError::DidNotUnify));
     }
