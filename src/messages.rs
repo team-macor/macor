@@ -1,10 +1,8 @@
 use crate::dolev_yao::can_derive;
-use crate::protocol::{self, AgentName, Direction, Func, Protocol, SessionId};
+use crate::protocol::Func;
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
-use indexmap::IndexMap;
 use itertools::Itertools;
-use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 use yansi::Paint;
 
@@ -252,6 +250,7 @@ impl UnifyKey for TermId {
 
 #[derive(Debug, Clone)]
 pub struct Unifier {
+    next_constant: u32,
     intruder: TermId,
     table: InPlaceUnificationTable<TermId>,
 }
@@ -260,13 +259,34 @@ impl Default for Unifier {
     fn default() -> Self {
         let mut table = InPlaceUnificationTable::default();
         let intruder = table.new_key(Term::Intruder);
-        Self { intruder, table }
+        Self {
+            next_constant: 1,
+            intruder,
+            table,
+        }
     }
 }
 
 impl Unifier {
     pub fn intruder(&self) -> TermId {
         self.intruder
+    }
+    pub fn register_new_constant(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
+        let cid = ConstantId(self.next_constant, hint.into());
+        self.next_constant += 1;
+        self.table.new_key(Term::Constant(cid, kind))
+    }
+    pub fn register_new_variable(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
+        self.table.new_key(Term::Variable(hint.into(), kind))
+    }
+    pub fn register_term(&mut self, term: Term<TermId>) -> TermId {
+        match term {
+            Term::Intruder => panic!("Intruders should not be registered. Use `Unifier::intruder` instead"),
+            Term::Variable(_, _) => panic!("Variables should not be registered explicitly. Use `Unifier::register_new_variable`"),
+            Term::Constant(_, _) => panic!("Constants should not be registered explicitly. Use `Unifier::register_new_constant`"),
+            term@Term::Composition(_, _) |
+            term@Term::Tuple(_) => self.table.new_key(term),
+        }
     }
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
@@ -598,441 +618,12 @@ mod tests {
 // ->B: NA_b (2)
 // B->: NA_b (3)
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum ForWho {
-    Intruder(SessionId),
-    Agent(SessionId, protocol::AgentName),
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-struct VariableKey {
-    for_who: ForWho,
-    variable: SmolStr,
-}
-
-#[derive(Debug)]
-pub struct Converter<'a> {
-    pub unifier: &'a mut Unifier,
-    pub mappings: &'a mut Mappings,
-}
-
-#[derive(Debug, Clone)]
-pub struct Mappings {
-    next_constant: u32,
-    global_agent_table: IndexMap<AgentName, TermId>,
-    agent_table: IndexMap<(ForWho, SmallStr), TermId>,
-    func_table: IndexMap<Func, TermId>,
-    global_constant_table: IndexMap<SmallStr, TermId>,
-    constant_table: IndexMap<VariableKey, TermId>,
-    variable_table: IndexMap<VariableKey, TermId>,
-}
-
-impl Default for Mappings {
-    fn default() -> Self {
-        Self {
-            next_constant: 1,
-            global_agent_table: Default::default(),
-            agent_table: Default::default(),
-            func_table: Default::default(),
-            global_constant_table: Default::default(),
-            constant_table: Default::default(),
-            variable_table: Default::default(),
-        }
-    }
-}
-
-impl<'a> Converter<'a> {
-    pub fn new(unifier: &'a mut Unifier, mappings: &'a mut Mappings) -> Self {
-        Self { unifier, mappings }
-    }
-
-    pub fn get_agent(&mut self, ctx: &ForWho, agent_to_get: &protocol::AgentName) -> TermId {
-        if agent_to_get.0.is_constant() {
-            return *self
-                .mappings
-                .global_agent_table
-                .entry(agent_to_get.clone())
-                .or_insert_with(|| {
-                    let cid =
-                        ConstantId::new(self.mappings.next_constant).hint(agent_to_get.0.clone());
-                    self.mappings.next_constant += 1;
-                    self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
-                });
-        }
-
-        const AGENTS_FIX_TO_THEMSELVES: bool = false;
-
-        match ctx {
-            ForWho::Intruder(session_id) => self.get_agent(
-                &ForWho::Agent(*session_id, agent_to_get.clone()),
-                agent_to_get,
-            ),
-            ForWho::Agent(session_id, agent) => *self
-                .mappings
-                .agent_table
-                .entry((ctx.clone(), agent_to_get.0.clone().into()))
-                .or_insert_with(|| {
-                    if agent_to_get.0.is_constant() {
-                        let cid = ConstantId::new(self.mappings.next_constant)
-                            .hint(agent_to_get.0.clone());
-                        self.mappings.next_constant += 1;
-                        self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
-                    } else if agent_to_get == agent && AGENTS_FIX_TO_THEMSELVES {
-                        let cid = ConstantId::new(self.mappings.next_constant).hint(format!(
-                            "{:?}_{:?}",
-                            agent_to_get.0.clone(),
-                            session_id.0
-                        ));
-                        self.mappings.next_constant += 1;
-                        self.unifier.table.new_key(Term::Constant(cid, Kind::Agent))
-                    } else {
-                        self.unifier.table.new_key(Term::Variable(
-                            Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0)).into(),
-                            Kind::Agent,
-                        ))
-                    }
-                }),
-        }
-    }
-    pub fn get_function_constant(&mut self, func: Func) -> TermId {
-        match func {
-            Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => *self
-                .mappings
-                .func_table
-                .entry(func.clone())
-                .or_insert_with(|| {
-                    let cid =
-                        ConstantId::new(self.mappings.next_constant).hint(format!("{:?}", func));
-                    self.mappings.next_constant += 1;
-                    self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
-                }),
-            Func::User(c) => self.register_global_constant_term(c.as_str()),
-        }
-    }
-
-    pub fn register_global_constant(&mut self, constant_name: &str) -> ConstantId {
-        let term = self.register_global_constant_term(constant_name);
-        match self.unifier.table.probe_value(term) {
-            Term::Constant(c, _) => c,
-            _ => unreachable!(),
-        }
-    }
-    pub fn register_global_constant_term(&mut self, constant_name: &str) -> TermId {
-        *self
-            .mappings
-            .global_constant_table
-            .entry(constant_name.into())
-            .or_insert_with(|| {
-                let cid = ConstantId::new(self.mappings.next_constant).hint(constant_name);
-                self.mappings.next_constant += 1;
-                self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
-            })
-    }
-    pub fn register_constant(
-        &mut self,
-        for_who: &ForWho,
-        constant_name: &Ident<SmallStr>,
-    ) -> TermId {
-        *self
-            .mappings
-            .constant_table
-            .entry(VariableKey {
-                for_who: for_who.clone(),
-                variable: constant_name.into(),
-            })
-            .or_insert_with(|| match for_who {
-                ForWho::Intruder(_) => todo!(),
-                ForWho::Agent(session_id, agent) => {
-                    let cid = ConstantId::new(self.mappings.next_constant)
-                        .hint(format!("{}@{}:{}", &agent.0, session_id.0, constant_name));
-                    self.mappings.next_constant += 1;
-                    self.unifier.table.new_key(Term::Constant(cid, Kind::Other))
-                }
-            })
-    }
-    pub fn register_variable(
-        &mut self,
-        for_who: &ForWho,
-        variable_name: &Ident<SmallStr>,
-    ) -> TermId {
-        *self
-            .mappings
-            .variable_table
-            .entry(VariableKey {
-                for_who: for_who.clone(),
-                variable: variable_name.into(),
-            })
-            .or_insert_with(|| match for_who {
-                ForWho::Intruder(_) => todo!(),
-                ForWho::Agent(session_id, agent) => self.unifier.table.new_key(Term::Variable(
-                    Some(format!("{}@{}:{}", agent.0, session_id.0, variable_name)).into(),
-                    Kind::Other,
-                )),
-            })
-    }
-
-    fn initiate_typed_variable(
-        &mut self,
-        for_who: &ForWho,
-        initiators: &IndexMap<protocol::Variable, protocol::AgentName>,
-        var: &protocol::Variable,
-    ) -> TermId {
-        match var {
-            protocol::Variable::Agent(a) => self.get_agent(for_who, a),
-            protocol::Variable::SymmetricKey(n) | protocol::Variable::Number(n) => {
-                match (initiators.get(var), for_who) {
-                    (Some(initiator), ForWho::Agent(_, agent)) if initiator == agent => {
-                        self.register_constant(for_who, &n.convert())
-                    }
-                    (Some(_), ForWho::Agent(_, _)) => self.register_variable(for_who, &n.convert()),
-                    (Some(initiator), ForWho::Intruder(session_id)) => self.register_constant(
-                        &ForWho::Agent(*session_id, initiator.clone()),
-                        &n.convert(),
-                    ),
-                    _ => todo!("Variable {:?} ({:?})", var, initiators),
-                }
-            }
-        }
-    }
-    pub fn register_typed_term(
-        &mut self,
-        for_who: &ForWho,
-        initiations: &IndexMap<protocol::Variable, protocol::AgentName>,
-        term: protocol::Term,
-    ) -> TermId {
-        match term {
-            protocol::Term::Variable(var) => {
-                self.initiate_typed_variable(for_who, initiations, &var)
-            }
-            protocol::Term::Constant(c) => match c {
-                protocol::Constant::Agent(a) => self.get_agent(for_who, &a),
-                protocol::Constant::Function(f) => self.get_function_constant(f),
-                protocol::Constant::Intruder => self.unifier.intruder(),
-                protocol::Constant::Nonce(_) => todo!(),
-            },
-            protocol::Term::Composition { func, args } => {
-                let term = Term::Composition(
-                    match func {
-                        Func::SymEnc => Func::SymEnc,
-                        Func::AsymEnc => Func::AsymEnc,
-                        Func::Exp => Func::Exp,
-                        Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant_term(u.as_str())),
-                    },
-                    args.into_iter()
-                        .map(|arg| self.register_typed_term(for_who, initiations, arg))
-                        .collect(),
-                );
-                self.unifier.table.new_key(term)
-            }
-            protocol::Term::Tuple(ts) => {
-                let term = Term::Tuple(
-                    ts.into_iter()
-                        .map(|t| self.register_typed_term(for_who, initiations, t))
-                        .collect(),
-                );
-                self.unifier.table.new_key(term)
-            }
-        }
-    }
-    pub fn register_ast_term(
-        &mut self,
-        term: protocol::Term<crate::typing::UntypedStage>,
-    ) -> TermId {
-        match term {
-            protocol::Term::Variable(v) => self.register_global_constant_term(v.as_str()),
-            protocol::Term::Constant(_) => unreachable!(),
-            protocol::Term::Composition { func, args } => {
-                let term = Term::Composition(
-                    match func {
-                        Func::SymEnc => Func::SymEnc,
-                        Func::AsymEnc => Func::AsymEnc,
-                        Func::Exp => Func::Exp,
-                        Func::Inv => Func::Inv,
-                        Func::User(u) => Func::User(self.register_global_constant_term(u.as_str())),
-                    },
-                    args.into_iter()
-                        .map(|t| self.register_ast_term(t))
-                        .collect(),
-                );
-
-                self.unifier.table.new_key(term)
-            }
-            protocol::Term::Tuple(ts) => {
-                let term = Term::Tuple(ts.into_iter().map(|t| self.register_ast_term(t)).collect());
-                self.unifier.table.new_key(term)
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct Knowledge(pub Vec<TermId>);
 
 impl Knowledge {
     pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullTerm> {
         self.0.iter().map(|&id| unifier.resolve_full(id)).collect()
-    }
-}
-
-type SmallStr = SmolStr;
-
-#[derive(Debug, Clone)]
-pub struct Transaction {
-    pub ast_node: protocol::PacketPattern,
-    pub sender: TermId,
-    pub receiver: TermId,
-    pub direction: Direction,
-    pub terms: Vec<TermId>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SessionAgent {
-    pub name: Ident<SmallStr>,
-    pub agent_id: TermId,
-    pub initial_knowledge: Knowledge,
-    pub strand: Vec<Transaction>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Secret {
-    pub between_agents: Vec<TermId>,
-    pub term: TermId,
-}
-
-#[derive(Debug, Clone)]
-pub struct Session {
-    pub session_id: SessionId,
-    pub agents: Vec<SessionAgent>,
-    pub secrets: Vec<Secret>,
-}
-
-impl Session {
-    pub fn new(protocol: &Protocol, session_id: SessionId, converter: &mut Converter) -> Session {
-        let agents = protocol
-            .agents
-            .iter()
-            .map(|agent| {
-                let for_who = ForWho::Agent(session_id, agent.name.clone());
-
-                let mut initial_knowledge: Vec<_> = agent
-                    .initial_knowledge
-                    .iter()
-                    .map(|term| {
-                        converter.register_typed_term(&for_who, &protocol.initiations, term.clone())
-                    })
-                    .collect();
-
-                let initiates = agent.terms.iter().flat_map(|pattern| {
-                    if pattern.direction == Direction::Outgoing {
-                        pattern.initiates.clone()
-                    } else {
-                        Default::default()
-                    }
-                });
-
-                initial_knowledge.extend(initiates.map(|var| {
-                    converter.initiate_typed_variable(&for_who, &protocol.initiations, &var)
-                }));
-
-                initial_knowledge
-                    .sort_unstable_by_key(|term| converter.unifier.resolve_full(*term));
-                initial_knowledge.dedup();
-
-                SessionAgent {
-                    name: agent.name.0.clone(),
-                    agent_id: converter.get_agent(&for_who, &agent.name),
-                    initial_knowledge: Knowledge(initial_knowledge),
-                    strand: agent
-                        .terms
-                        .iter()
-                        .map(|pattern| Transaction {
-                            ast_node: pattern.clone(),
-                            sender: converter.get_agent(&for_who, &pattern.from),
-                            receiver: converter.get_agent(&for_who, &pattern.to),
-                            direction: pattern.direction,
-                            terms: pattern
-                                .packet
-                                .iter()
-                                .map(|term| {
-                                    converter.register_typed_term(
-                                        &for_who,
-                                        &protocol.initiations,
-                                        term.clone(),
-                                    )
-                                })
-                                .collect_vec(),
-                        })
-                        .collect(),
-                }
-            })
-            .collect_vec();
-
-        let secrets = protocol
-            .goals
-            .iter()
-            .flat_map(|goal| match goal {
-                protocol::Goal::SecretBetween(agents, terms) => terms
-                    .iter()
-                    .map(|term| Secret {
-                        between_agents: agents
-                            .iter()
-                            .map(|agent| converter.get_agent(&ForWho::Intruder(session_id), agent))
-                            .collect(),
-                        term: converter.register_typed_term(
-                            &ForWho::Intruder(session_id),
-                            &protocol.initiations,
-                            term.clone(),
-                        ),
-                    })
-                    .collect_vec(),
-                protocol::Goal::Authenticates(_, _, _) => {
-                    eprintln!("⚠️ no authentication goals");
-                    vec![]
-                }
-            })
-            .collect();
-
-        Session {
-            session_id,
-            agents,
-            secrets,
-        }
-    }
-    pub fn print(&self, unifier: &mut Unifier) {
-        println!();
-        println!("#############");
-        println!("# SESSION {} #", self.session_id.0);
-        println!("#############");
-        for agent in &self.agents {
-            println!();
-            println!("> {} ({:?})", agent.name, agent.agent_id);
-            println!(
-                "> IK: {:?}",
-                agent
-                    .initial_knowledge
-                    .0
-                    .iter()
-                    .map(|&term| unifier.resolve_full(term))
-                    .collect_vec()
-            );
-            for t in &agent.strand {
-                println!(
-                    ">> {:?}->{:?}: {:?}",
-                    unifier.resolve_full(t.sender),
-                    unifier.resolve_full(t.receiver),
-                    t.terms
-                        .iter()
-                        .map(|&term| unifier.resolve_full(term))
-                        .collect_vec()
-                );
-            }
-        }
-        println!();
-        println!("=== SECRETS ===");
-        for secret in &self.secrets {
-            println!("{:?}", unifier.resolve_full(secret.term));
-        }
     }
 }
 

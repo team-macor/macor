@@ -5,8 +5,10 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    messages::{Converter, FullTerm, Knowledge, Session, TermId, Unifier},
+    lower::Converter,
+    messages::{FullTerm, Knowledge, TermId, Unifier},
     protocol::{Direction, Protocol, SessionId},
+    sessions::Session,
 };
 
 struct AgentState {

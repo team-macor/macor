@@ -5,8 +5,10 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
-    messages::{Converter, Knowledge, Mappings, Session, TermId, Unifier},
+    lower::{Converter, ForWho, Mappings},
+    messages::{Knowledge, TermId, Unifier},
     protocol::{Direction, Protocol, SessionId},
+    sessions::Session,
 };
 
 type Rc<T> = std::sync::Arc<T>;
@@ -180,7 +182,7 @@ impl Execution {
                 for term in &agent.initial_knowledge.0 {
                     let term = term.replace_agent_with_intruder(&agent.name);
                     let registered_term = converter.register_typed_term(
-                        &crate::messages::ForWho::Intruder(session.session_id),
+                        &ForWho::Intruder(session.session_id),
                         &protocol.initiations,
                         term.clone(),
                     );

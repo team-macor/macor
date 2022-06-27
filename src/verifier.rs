@@ -4,8 +4,10 @@ use itertools::Itertools;
 
 use crate::{
     execution::{Execution, ExecutionTraceEntry, TraceEntry},
-    messages::{Converter, FullTerm, Kind, Session, Term, Unifier},
+    lower::Converter,
+    messages::{FullTerm, Kind, Term, Unifier},
     protocol::{Func, Protocol, SessionId},
+    sessions::Session,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelExtend, ParallelIterator};
 

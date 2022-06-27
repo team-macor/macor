@@ -109,7 +109,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
 mod tests {
     use itertools::Itertools;
 
-    use crate::messages::{Converter, Knowledge};
+    use crate::{lower::Converter, messages::Knowledge};
 
     // TODO: needs to handle term with commas like {|A, B|} as 1 term (call parser)
     macro_rules! scenario {
