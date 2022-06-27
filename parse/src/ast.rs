@@ -28,7 +28,7 @@ impl<S: Deref<Target = str>> Document<S> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypesKey {
     Agent,
     Number,
@@ -172,7 +172,7 @@ impl<S: Deref<Target = str>> Knowledge<S> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Where<S: Deref<Target = str>> {
     NotEqual(Ident<S>, Ident<S>),
 }

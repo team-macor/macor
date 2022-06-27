@@ -31,7 +31,7 @@ impl Stage for TypedStage {
     type Variable = Variable;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Type {
     Agent,
     SymmetricKey,
@@ -39,7 +39,7 @@ pub enum Type {
     Function,
 }
 
-#[derive(Debug, PartialEq, thiserror::Error, miette::Diagnostic, Clone)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, miette::Diagnostic, Clone)]
 pub enum TypingError {
     #[error("Symmetric key '{name}' cannot be constant")]
     #[diagnostic()]
@@ -92,7 +92,7 @@ pub enum TypingError {
     },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypingContext {
     pub src: String,
     pub types: HashMap<String, Type>,

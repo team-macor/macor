@@ -112,7 +112,7 @@ pub enum Constant {
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
 pub struct Nonce(pub u32);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Packet {
     pub terms: Vec<Term>,
 }
@@ -149,13 +149,13 @@ impl Packet {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Ingoing,
     Outgoing,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PacketPattern {
     pub from: AgentName,
     pub to: AgentName,
@@ -164,13 +164,13 @@ pub struct PacketPattern {
     pub initiates: IndexSet<Variable>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
     Variable,
     Constant,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolAgent {
     pub name: AgentName,
     pub kind: AgentKind,
@@ -178,13 +178,13 @@ pub struct ProtocolAgent {
     pub terms: Vec<PacketPattern>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Goal<A> {
     SecretBetween(Vec<A>, Vec<Term>),
     Authenticates(A, A, Vec<Term>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Protocol {
     pub agents: Vec<ProtocolAgent>,
     pub initiations: IndexMap<Variable, AgentName>,

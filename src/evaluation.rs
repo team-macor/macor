@@ -1,8 +1,4 @@
-use std::{
-    path::PathBuf,
-    process::Command,
-    time::{Duration, Instant},
-};
+use std::{path::PathBuf, process::Command};
 
 // pub struct TimingResult {
 //     pub ofmc_time: Duration,

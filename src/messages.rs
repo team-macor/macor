@@ -1,6 +1,4 @@
-use std::collections::VecDeque;
-
-use crate::dolev_yao::{augment_knowledge, can_derive};
+use crate::dolev_yao::can_derive;
 use crate::protocol::{self, AgentName, Direction, Func, Protocol, SessionId};
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
