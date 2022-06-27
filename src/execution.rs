@@ -268,16 +268,14 @@ impl Execution {
                                                     agent.name.as_str().into(),
                                                     agent.agent_id,
                                                 )),
-                                                receiver: Some(
-                                                    (
-                                                        self.sessions[session_i].agents[receiver_i]
-                                                            .name
-                                                            .as_str()
-                                                            .into(),
-                                                        self.sessions[session_i].agents[receiver_i]
-                                                            .agent_id,
-                                                    ),
-                                                ),
+                                                receiver: Some((
+                                                    self.sessions[session_i].agents[receiver_i]
+                                                        .name
+                                                        .as_str()
+                                                        .into(),
+                                                    self.sessions[session_i].agents[receiver_i]
+                                                        .agent_id,
+                                                )),
                                                 terms: transaction.terms.clone(),
                                             }
                                             .into(),
@@ -322,8 +320,6 @@ impl Execution {
                                                 intruder.knowledge.clone(),
                                                 transaction.terms.clone(),
                                             )));
-
-                                            intruder.knowledge.0.extend(transaction.terms.clone());
 
                                             new.states[session_i].agents[agent_i]
                                                 .current_execution += 1;
