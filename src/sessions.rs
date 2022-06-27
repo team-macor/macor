@@ -58,7 +58,7 @@ impl Session {
                             .iter()
                             .map(|agent| ctx.get_agent(&ForWho::Intruder(session_id), agent))
                             .collect(),
-                        term: ctx.register_typed_term(
+                        term: ctx.lower_term(
                             &ForWho::Intruder(session_id),
                             &protocol.initiations,
                             term.clone(),
@@ -84,7 +84,7 @@ impl Session {
 
             for term in agent.initial_knowledge.iter() {
                 let term = term.replace_agent_with_intruder(&agent.name);
-                let registered_term = ctx.register_typed_term(
+                let registered_term = ctx.lower_term(
                     &ForWho::Intruder(session_id),
                     &protocol.initiations,
                     term.clone(),
@@ -155,7 +155,7 @@ impl Role {
         let mut initial_knowledge: Vec<_> = agent
             .initial_knowledge
             .iter()
-            .map(|t| ctx.register_typed_term(&for_who, &protocol.initiations, t.clone()))
+            .map(|t| ctx.lower_term(&for_who, &protocol.initiations, t.clone()))
             .collect();
 
         let initiates = agent
@@ -164,9 +164,8 @@ impl Role {
             .filter_map(|p| p.direction.is_outgoing().then(|| p.initiates.clone()))
             .flatten();
 
-        initial_knowledge.extend(
-            initiates.map(|var| ctx.initiate_typed_variable(&for_who, &protocol.initiations, &var)),
-        );
+        initial_knowledge
+            .extend(initiates.map(|var| ctx.lower_variable(&for_who, &protocol.initiations, &var)));
 
         initial_knowledge.sort_unstable_by_key(|term| ctx.unifier.resolve_full(*term));
         initial_knowledge.dedup();
@@ -182,7 +181,7 @@ impl Role {
                 terms: pattern
                     .message
                     .iter()
-                    .map(|t| ctx.register_typed_term(&for_who, &protocol.initiations, t.clone()))
+                    .map(|t| ctx.lower_term(&for_who, &protocol.initiations, t.clone()))
                     .collect(),
             })
             .collect();

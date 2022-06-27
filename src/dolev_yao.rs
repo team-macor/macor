@@ -127,13 +127,13 @@ mod tests {
             let mut knowledge = Knowledge(
                 knowledge
                     .into_iter()
-                    .map(|k| ctx.register_ast_term(k.into()))
+                    .map(|k| ctx.lower_ast_term(k.into()))
                     .collect_vec(),
             );
 
             let goals = goals
                 .into_iter()
-                .map(|(g, b)| (b, ctx.register_ast_term(g.into())))
+                .map(|(g, b)| (b, ctx.lower_ast_term(g.into())))
                 .collect_vec();
 
             crate::dolev_yao::augment_knowledge(&mut knowledge, &mut unifier);

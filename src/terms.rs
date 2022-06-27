@@ -293,14 +293,11 @@ impl Unifier {
     pub fn register_new_variable(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
         self.table.new_key(Variable(hint.into(), kind))
     }
-    pub fn register_term(&mut self, term: Term<TermId>) -> TermId {
-        match term {
-            Intruder => panic!("Intruders should not be registered. Use `Unifier::intruder` instead"),
-            Variable(_, _) => panic!("Variables should not be registered explicitly. Use `Unifier::register_new_variable`"),
-            Constant(_, _) => panic!("Constants should not be registered explicitly. Use `Unifier::register_new_constant`"),
-            term@Composition(_, _) |
-            term@Tuple(_) => self.table.new_key(term),
-        }
+    pub fn register_new_composition(&mut self, func: Func<TermId>, args: Vec<TermId>) -> TermId {
+        self.table.new_key(Composition(func, args))
+    }
+    pub fn register_new_tuple(&mut self, terms: Vec<TermId>) -> TermId {
+        self.table.new_key(Tuple(terms))
     }
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
