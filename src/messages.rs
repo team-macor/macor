@@ -99,13 +99,23 @@ pub enum Term<M> {
     Composition(Func<M>, Vec<M>),
     Tuple(Vec<M>),
 }
+use self::Term::*;
 
 impl<M> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
-            Term::Intruder => Kind::Agent,
-            Term::Variable(_, kind) | Term::Constant(_, kind) => *kind,
-            Term::Composition(_, _) | Term::Tuple(_) => Kind::Other,
+            Intruder => Kind::Agent,
+            Variable(_, kind) | Constant(_, kind) => *kind,
+            Composition(_, _) | Tuple(_) => Kind::Other,
+        }
+    }
+    pub fn map<T>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
+        match self {
+            Intruder => Intruder,
+            Variable(hint, kind) => Variable(hint.clone(), *kind),
+            Constant(c, kind) => Constant(c.clone(), *kind),
+            Composition(n, args) => Composition(n.map(|x| f(x)), args.iter().map(f).collect()),
+            Tuple(ts) => Tuple(ts.iter().map(f).collect()),
         }
     }
 }
@@ -182,8 +192,6 @@ impl UnifyValue for Term<TermId> {
     type Error = ();
 
     fn unify_values(l: &Self, r: &Self) -> Result<Self, Self::Error> {
-        use self::Term::*;
-
         Ok(match (l, r) {
             (Variable(l, lk), Variable(r, rk)) => {
                 if lk == rk {
@@ -258,7 +266,7 @@ pub struct Unifier {
 impl Default for Unifier {
     fn default() -> Self {
         let mut table = InPlaceUnificationTable::default();
-        let intruder = table.new_key(Term::Intruder);
+        let intruder = table.new_key(Intruder);
         Self {
             next_constant: 1,
             intruder,
@@ -274,18 +282,18 @@ impl Unifier {
     pub fn register_new_constant(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
         let cid = ConstantId(self.next_constant, hint.into());
         self.next_constant += 1;
-        self.table.new_key(Term::Constant(cid, kind))
+        self.table.new_key(Constant(cid, kind))
     }
     pub fn register_new_variable(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
-        self.table.new_key(Term::Variable(hint.into(), kind))
+        self.table.new_key(Variable(hint.into(), kind))
     }
     pub fn register_term(&mut self, term: Term<TermId>) -> TermId {
         match term {
-            Term::Intruder => panic!("Intruders should not be registered. Use `Unifier::intruder` instead"),
-            Term::Variable(_, _) => panic!("Variables should not be registered explicitly. Use `Unifier::register_new_variable`"),
-            Term::Constant(_, _) => panic!("Constants should not be registered explicitly. Use `Unifier::register_new_constant`"),
-            term@Term::Composition(_, _) |
-            term@Term::Tuple(_) => self.table.new_key(term),
+            Intruder => panic!("Intruders should not be registered. Use `Unifier::intruder` instead"),
+            Variable(_, _) => panic!("Variables should not be registered explicitly. Use `Unifier::register_new_variable`"),
+            Constant(_, _) => panic!("Constants should not be registered explicitly. Use `Unifier::register_new_constant`"),
+            term@Composition(_, _) |
+            term@Tuple(_) => self.table.new_key(term),
         }
     }
     /// Recursively unifies the two terms and returns either of the passed
@@ -305,8 +313,6 @@ impl Unifier {
         }
     }
     fn unify_inner(&mut self, l: TermId, r: TermId) -> Result<TermId, ()> {
-        use self::Term::*;
-
         Ok(
             match (self.table.probe_value(l), self.table.probe_value(r)) {
                 (x @ Variable(_, _), y) | (y, x @ Variable(_, _)) if x.kind() == y.kind() => {
@@ -352,8 +358,6 @@ impl Unifier {
         )
     }
     pub fn are_unified(&mut self, a: TermId, b: TermId) -> bool {
-        use self::Term::*;
-
         if self.table.unioned(a, b) {
             return true;
         }
@@ -386,10 +390,8 @@ impl Unifier {
     //         return Ok(());
     //     }
 
-    //     use self::Term::*;
-
     //     match (self.probe_value(a), self.probe_value(b)) {
-    //         (Term::Agent(_))
+    //         (Agent(_))
     //         (a, b) => todo!("{:?} {:?}", a, b),
     //     }
 
@@ -407,21 +409,11 @@ impl Unifier {
     }
 
     pub fn resolve_full(&mut self, id: TermId) -> FullTerm {
-        let term = match self.table.probe_value(id) {
-            Term::Intruder => Term::Intruder,
-            Term::Variable(v, kind) => Term::Variable(v, kind),
-            Term::Constant(c, kind) => Term::Constant(c, kind),
-            Term::Composition(func, args) => Term::Composition(
-                func.map(|&id| box self.resolve_full(id)),
-                args.into_iter()
-                    .map(|arg| box self.resolve_full(arg))
-                    .collect(),
-            ),
-            Term::Tuple(ts) => {
-                Term::Tuple(ts.into_iter().map(|t| box self.resolve_full(t)).collect())
-            }
-        };
-        FullTerm(term)
+        FullTerm(
+            self.table
+                .probe_value(id)
+                .map(|&id| box self.resolve_full(id)),
+        )
     }
 }
 
@@ -432,11 +424,10 @@ mod tests {
     impl Unifier {
         fn constant(&mut self, i: u32) -> TermId {
             self.table
-                .new_key(Term::Constant(ConstantId(i, Hint::none()), Kind::Other))
+                .new_key(Constant(ConstantId(i, Hint::none()), Kind::Other))
         }
         fn variable(&mut self) -> TermId {
-            self.table
-                .new_key(Term::Variable(Hint::none(), Kind::Other))
+            self.table.new_key(Variable(Hint::none(), Kind::Other))
         }
     }
 
@@ -452,7 +443,7 @@ mod tests {
         assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
         assert_eq!(
             unifier.table.probe_value(b),
-            Term::Constant(ConstantId(0, Hint::none()), Kind::Other)
+            Constant(ConstantId(0, Hint::none()), Kind::Other)
         );
 
         Ok(())
@@ -468,17 +459,17 @@ mod tests {
         let y_free = unifier.variable();
         let x_free = unifier.variable();
 
-        let a = unifier.table.new_key(Term::Tuple(vec![x, y_free]));
-        let b = unifier.table.new_key(Term::Tuple(vec![x_free, y]));
+        let a = unifier.table.new_key(Tuple(vec![x, y_free]));
+        let b = unifier.table.new_key(Tuple(vec![x_free, y]));
 
         unifier.unify(a, b)?;
 
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Term::Tuple(vec![
-                box FullTerm(Term::Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                box FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Tuple(vec![
+                box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
             ]))
         );
 
@@ -497,21 +488,21 @@ mod tests {
 
         let a = unifier
             .table
-            .new_key(Term::Composition(Func::Exp, vec![x, y_free]));
+            .new_key(Composition(Func::Exp, vec![x, y_free]));
         let b = unifier
             .table
-            .new_key(Term::Composition(Func::Exp, vec![x_free, y]));
+            .new_key(Composition(Func::Exp, vec![x_free, y]));
 
         unifier.unify(a, b)?;
 
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Term::Composition(
+            FullTerm(Composition(
                 Func::Exp,
                 vec![
-                    box FullTerm(Term::Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                    box FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
+                    box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
+                    box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
                 ]
             ))
         );
@@ -528,8 +519,8 @@ mod tests {
 
         let free = unifier.variable();
 
-        let a = unifier.table.new_key(Term::Tuple(vec![y, free]));
-        let b = unifier.table.new_key(Term::Tuple(vec![x, y]));
+        let a = unifier.table.new_key(Tuple(vec![y, free]));
+        let b = unifier.table.new_key(Tuple(vec![x, y]));
 
         assert_eq!(unifier.unify(a, b), Err(()));
     }
@@ -551,11 +542,11 @@ mod tests {
 
         assert_eq!(
             world_1.resolve_full(a),
-            FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
         );
         assert_eq!(
             world_2.resolve_full(a),
-            FullTerm(Term::Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(2, Hint::none()), Kind::Other))
         );
 
         Ok(())
@@ -576,7 +567,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Term::Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
         );
 
         unifier.table.rollback_to(snap);
@@ -585,7 +576,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Term::Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(2, Hint::none()), Kind::Other))
         );
 
         Ok(())
