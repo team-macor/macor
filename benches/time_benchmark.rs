@@ -13,6 +13,8 @@ pub fn bench_macor(c: &mut Criterion) {
                     .arg("verify")
                     .arg("-n")
                     .arg(num_session.to_string())
+                    .arg("--iter")
+                    .arg("100")
                     .arg(&p.canonicalize().unwrap())
                     .output()
                     .expect("Could not find path for MACOR");
