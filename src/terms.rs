@@ -117,6 +117,10 @@ impl<M> Term<M> {
             Tuple(ts) => Tuple(ts.iter().map(f).collect()),
         }
     }
+
+    pub fn is_inv(&self) -> bool {
+        matches!(self, Composition(Func::Inv, _))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -407,7 +411,6 @@ impl Unifier {
     //     false
     // }
 
-    #[inline(always)]
     pub fn probe_value(&mut self, id: TermId) -> Term<TermId> {
         self.table.inlined_probe_value(id)
     }

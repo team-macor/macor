@@ -2,26 +2,41 @@ use crate::protocol::Func;
 use crate::terms::{FullTerm, Term, TermId, Unifier};
 
 #[derive(Debug, Clone, Default)]
-pub struct Knowledge(Vec<TermId>);
+pub struct Knowledge {
+    terms: Vec<TermId>,
+    augmented_terms: Vec<TermId>,
+}
 
 impl Knowledge {
     pub fn new(terms: Vec<TermId>) -> Knowledge {
-        Knowledge(terms)
+        Knowledge {
+            terms,
+            augmented_terms: vec![],
+        }
     }
     pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullTerm> {
-        self.0.iter().map(|&id| unifier.resolve_full(id)).collect()
+        self.iter().map(|id| unifier.resolve_full(id)).collect()
     }
     pub fn iter(&self) -> impl Iterator<Item = TermId> + '_ {
-        self.0.iter().copied()
+        self.terms.iter().chain(&self.augmented_terms).copied()
     }
     pub fn add(&mut self, term: TermId) {
-        self.0.push(term)
+        self.terms.push(term)
     }
     pub fn extend(&mut self, terms: impl IntoIterator<Item = TermId>) {
-        self.0.extend(terms)
+        self.terms.extend(terms)
     }
     pub fn contains_term_id(&self, term: TermId) -> bool {
-        self.0.contains(&term)
+        self.terms.contains(&term) || self.augmented_terms.contains(&term)
+    }
+    pub fn can_derive_inv(&self, unifier: &mut Unifier, goal: TermId) -> bool {
+        self.iter().any(|t| match unifier.probe_value(t) {
+            Term::Composition(Func::Inv, args) => {
+                assert_eq!(args.len(), 1);
+                unifier.are_unified(args[0], goal)
+            }
+            _ => false,
+        })
     }
     pub fn can_derive(&self, unifier: &mut Unifier, goal: TermId) -> bool {
         let mut stack = vec![goal];
@@ -31,12 +46,14 @@ impl Knowledge {
             if self.iter().any(|t| unifier.are_unified(t, term)) {
                 continue;
             }
+            // TODO: This step can branch depending on which term from the
+            // knowledge was unified with. Consider propagating the branching up
+            // throughout the search.
             if self.iter().any(|t| unifier.unify(t, term).is_ok()) {
                 continue;
             }
 
             // Compose
-            // dbg!(unifier.resolve_full(term));
             match unifier.probe_value(term) {
                 Term::Composition(func, args) => {
                     match func {
@@ -63,63 +80,87 @@ impl Knowledge {
         true
     }
     pub fn augment_knowledge(&mut self, unifier: &mut Unifier) {
-        let mut new_terms: Vec<TermId> = Vec::new();
+        enum Move {
+            Keep,
+            Move,
+            Remove,
+        }
+
+        let mut moves = vec![];
+        let mut new_terms = vec![];
         loop {
-            for term in self.iter() {
-                match unifier.probe_value(term) {
-                    Term::Composition(func, args) => match func {
-                        Func::SymEnc => {
-                            if args.len() != 2 {
-                                unreachable!("arguments for symmetric encrypt function must only contain 2 arguments")
-                            }
-                            let (term, key) = (args[0], args[1]);
+            moves.extend(
+                self.terms
+                    .iter()
+                    .map(|&term| match unifier.probe_value(term) {
+                        Term::Composition(func @ (Func::SymEnc | Func::AsymEnc), args) => {
+                            let (inner, key) = if let &[inner, key] = &args[..] {
+                                (inner, key)
+                            } else {
+                                unreachable!("{func:?} must only contain 2 arguments")
+                            };
 
-                            if self.can_derive(unifier, key) {
-                                // println!(
-                                //     "adding term {:?} to new_terms",
-                                //     unifier.resolve_full(term)
-                                // );
-                                new_terms.push(term);
+                            match func {
+                                // Symmetric encryption requires the same key as
+                                // encrypted with
+                                Func::SymEnc if self.can_derive(unifier, key) => {
+                                    new_terms.push(inner);
+                                    Move::Move
+                                }
+                                // Singed terms can always be unwrapped
+                                Func::AsymEnc if unifier.probe_value(key).is_inv() => {
+                                    new_terms.push(inner);
+                                    Move::Move
+                                }
+                                // Encrypted terms can be decrypted if the
+                                // inverse key is in the knowledge
+                                Func::AsymEnc
+                                    if self.iter().any(|t| match unifier.probe_value(t) {
+                                        Term::Composition(Func::Inv, args) => {
+                                            assert_eq!(args.len(), 1);
+                                            unifier.are_unified(args[0], key)
+                                        }
+                                        _ => false,
+                                    }) =>
+                                {
+                                    new_terms.push(inner);
+                                    Move::Move
+                                }
+                                _ => Move::Keep,
                             }
                         }
-                        Func::AsymEnc => {
-                            if args.len() != 2 {
-                                unreachable!("arguments for asymmetric encrypt function must only contain 2 arguments");
-                            }
-                            let (term, key) = (args[0], args[1]);
-
-                            if let Term::Composition(Func::Inv, _) = unifier.probe_value(key) {
-                                new_terms.push(term);
-                            }
-
-                            // TODO: inv(key) should be goal here, not term
-                            if self.can_derive(unifier, term) {
-                                new_terms.push(term);
-                            }
+                        Term::Composition(_, _) => Move::Move,
+                        Term::Tuple(terms) => {
+                            new_terms.extend(&terms);
+                            Move::Remove
                         }
-                        _ => {}
-                    },
-                    Term::Tuple(terms) => {
-                        for m in terms {
-                            new_terms.push(m);
-                        }
+                        Term::Variable(_, _) => Move::Keep,
+                        Term::Constant(_, _) => Move::Move,
+                        Term::Intruder => Move::Move,
+                    }),
+            );
+
+            for (i, m) in moves.drain(..).enumerate().rev() {
+                match m {
+                    Move::Keep => {}
+                    Move::Move => self.augmented_terms.push(self.terms.swap_remove(i)),
+                    Move::Remove => {
+                        self.terms.swap_remove(i);
                     }
-                    _ => {}
                 }
             }
 
             new_terms.retain(|term| !self.contains_term_id(*term));
 
-            // remove tuples
             if new_terms.is_empty() {
-                self.0
-                    .retain(|m| !matches!(unifier.probe_value(*m), Term::Tuple(_)));
-                self.0.sort_unstable();
-                self.0.dedup();
+                self.terms.sort_unstable();
+                self.terms.dedup();
+                self.augmented_terms.sort_unstable();
+                self.augmented_terms.dedup();
                 return;
             }
 
-            self.0.append(&mut new_terms);
+            self.terms.append(&mut new_terms);
 
             assert_eq!(new_terms.len(), 0);
         }
@@ -129,19 +170,10 @@ impl Knowledge {
 impl IntoIterator for Knowledge {
     type Item = TermId;
 
-    type IntoIter = std::vec::IntoIter<TermId>;
+    type IntoIter = std::iter::Chain<std::vec::IntoIter<TermId>, std::vec::IntoIter<TermId>>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-impl<'a> IntoIterator for &'a Knowledge {
-    type Item = TermId;
-
-    type IntoIter = std::iter::Copied<std::slice::Iter<'a, TermId>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.iter().copied()
+        self.terms.into_iter().chain(self.augmented_terms)
     }
 }
 
@@ -189,12 +221,11 @@ mod tests {
             goals: "f(k_1, k_2), !h(k_1, k_2), { k_1 }(f(f(k_1), k_2))";
         };
     }
-
     #[test]
-    fn requires_augment() {
+    fn derive_simple_composition() {
         scenario! {
-            knowledge: "key, { data }(inv(key))";
-            goals: "data";
+            knowledge: "f(k_1)";
+            goals: "f(k_1)";
         };
     }
 
@@ -202,6 +233,18 @@ mod tests {
     fn derive_sym_enc() {
         scenario! {
             knowledge: "key, {| data |}(key)";
+            goals: "data";
+        };
+    }
+
+    #[test]
+    fn derive_asym_enc() {
+        scenario! {
+            knowledge: "key, { data }(inv(key))";
+            goals: "data";
+        };
+        scenario! {
+            knowledge: "inv(key), { data }(key)";
             goals: "data";
         };
     }
