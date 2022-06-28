@@ -42,6 +42,15 @@ impl Knowledge {
         let mut stack = vec![goal];
 
         while let Some(term) = stack.pop() {
+            // TODO: Cycles can occur in the terms can occur as a result of the
+            // unification performed in this step. There must be some way to
+            // prevent this by construction, but for now if the stack grows
+            // larger than 100 (i.e. more than 100 sub-terms), then assume a
+            // cycle has been reached and return false.
+            if stack.len() > 100 {
+                return false;
+            }
+
             // Axiom
             if self.iter().any(|t| unifier.are_unified(t, term)) {
                 continue;
