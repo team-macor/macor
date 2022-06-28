@@ -14,6 +14,7 @@ pub struct Transaction {
     pub ast_node: protocol::MessagePattern,
     pub sender: TermId,
     pub receiver: TermId,
+    pub post_knowledge: Knowledge,
     pub direction: Direction,
     pub terms: Vec<TermId>,
 }
@@ -160,35 +161,46 @@ impl Role {
         let initiates = agent
             .messages
             .iter()
-            .filter_map(|p| p.direction.is_outgoing().then(|| p.initiates.clone()))
+            .filter_map(|p| p.direction.is_outgoing().then(|| &p.initiates))
             .flatten();
 
         initial_knowledge
-            .extend(initiates.map(|var| ctx.lower_variable(&for_who, &protocol.initiations, &var)));
+            .extend(initiates.map(|var| ctx.lower_variable(&for_who, &protocol.initiations, var)));
 
-        initial_knowledge.sort_unstable_by_key(|term| ctx.unifier.resolve_full(*term));
+        initial_knowledge.sort_unstable_by_key(|&term| (ctx.unifier.resolve_full(term), term));
         initial_knowledge.dedup();
+
+        let mut initial_knowledge = Knowledge::new(initial_knowledge);
+        initial_knowledge.augment_knowledge(ctx.unifier);
+
+        let mut current_knowledge = initial_knowledge.clone();
 
         let strand = agent
             .messages
             .iter()
-            .map(|pattern| Transaction {
-                ast_node: pattern.clone(),
-                sender: ctx.get_agent(&for_who, &pattern.from),
-                receiver: ctx.get_agent(&for_who, &pattern.to),
-                direction: pattern.direction,
-                terms: pattern
+            .map(|pattern| {
+                let terms = pattern
                     .message
                     .iter()
                     .map(|t| ctx.lower_term(&for_who, &protocol.initiations, t.clone()))
-                    .collect(),
+                    .collect_vec();
+                current_knowledge.extend(terms.iter().copied());
+                current_knowledge.augment_knowledge(ctx.unifier);
+                Transaction {
+                    ast_node: pattern.clone(),
+                    sender: ctx.get_agent(&for_who, &pattern.from),
+                    receiver: ctx.get_agent(&for_who, &pattern.to),
+                    direction: pattern.direction,
+                    post_knowledge: current_knowledge.clone(),
+                    terms,
+                }
             })
             .collect();
 
         Role {
             name: agent.name.0.clone(),
             agent_id: ctx.get_agent(&for_who, &agent.name),
-            initial_knowledge: Knowledge::new(initial_knowledge),
+            initial_knowledge,
             strand,
         }
     }
