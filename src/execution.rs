@@ -5,9 +5,10 @@ use smol_str::SmolStr;
 
 use crate::{
     dolev_yao,
+    dolev_yao::Knowledge,
     protocol::{Direction, SessionId},
     sessions::Session,
-    terms::{Knowledge, TermId, Unifier},
+    terms::{TermId, Unifier},
 };
 
 type Rc<T> = std::sync::Arc<T>;
@@ -95,7 +96,7 @@ impl Intruder {
                 //         .format(", ")
                 // );
 
-                for &k in &knowledge.0 {
+                for k in knowledge {
                     if new_unifier.unify(secret.term, k).is_ok()
                     // if self.knowledge.can_construct(unifier, secret)
                         && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
@@ -163,10 +164,10 @@ impl Execution {
 
         let mut intruder = Intruder::default();
 
-        intruder.knowledge.0.extend(
+        intruder.knowledge.extend(
             sessions
                 .iter()
-                .flat_map(|session| session.intruder_knowledge.0.iter().cloned()),
+                .flat_map(|session| session.intruder_knowledge.iter()),
         );
 
         Execution {
@@ -211,7 +212,9 @@ impl Execution {
                                         new.states[session_i].agents[agent_i].current_execution +=
                                             1;
 
-                                        intruder.knowledge.0.extend(transaction.terms.clone());
+                                        intruder
+                                            .knowledge
+                                            .extend(transaction.terms.iter().copied());
 
                                         new.trace.push(
                                             TraceEntry {
@@ -350,9 +353,8 @@ impl Execution {
                 "# Intruder knowledge:\n  {:?}",
                 intruder
                     .knowledge
-                    .0
                     .iter()
-                    .map(|term| self.unifier.resolve_full(*term))
+                    .map(|term| self.unifier.resolve_full(term))
                     .format(", ")
             );
         }

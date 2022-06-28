@@ -4,11 +4,11 @@ use miette::SourceSpan;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao,
+    dolev_yao::{self, Knowledge},
     lower::LoweringContext,
     protocol::{Direction, Protocol, SessionId},
     sessions::Session,
-    terms::{FullTerm, Knowledge, TermId, Unifier},
+    terms::{FullTerm, TermId, Unifier},
 };
 
 struct AgentState {
@@ -137,9 +137,8 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                                 term: unifier.resolve_full(sender_term.terms[term_i]),
                                 knowledge: sender_state
                                     .knowledge
-                                    .0
                                     .iter()
-                                    .map(|&id| unifier.resolve_full(id))
+                                    .map(|id| unifier.resolve_full(id))
                                     .collect(),
                             })
                         }
@@ -150,7 +149,6 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
 
                     agent_states[recipient_i]
                         .knowledge
-                        .0
                         .extend(sender_term.terms.iter().cloned());
                     dolev_yao::augment_knowledge(&mut agent_states[recipient_i].knowledge, unifier);
 

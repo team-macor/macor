@@ -605,37 +605,3 @@ mod tests {
 
 // ->B: NA_b (2)
 // B->: NA_b (3)
-
-#[derive(Debug, Clone, Default)]
-pub struct Knowledge(pub Vec<TermId>);
-
-impl Knowledge {
-    pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullTerm> {
-        self.0.iter().map(|&id| unifier.resolve_full(id)).collect()
-    }
-}
-
-impl Knowledge {
-    pub fn can_construct(&self, unifier: &mut Unifier, term: TermId) -> bool {
-        // eprintln!(
-        //     "Can construct {:?} with knowledge {:?}",
-        //     unifier.resolve_full(term),
-        //     self.0
-        //         .iter()
-        //         .map(|&term| unifier.resolve_full(term))
-        //         .format(", ")
-        // );
-        // if self.0.iter().any(|&k| unifier.table.unioned(k, term)) {
-        //     return true;
-        // }
-        // if self.0.iter().any(|&k| unifier.unify(k, term).is_ok()) {
-        //     return true;
-        // }
-
-        if can_derive(self, term, unifier) {
-            return true;
-        }
-
-        false
-    }
-}

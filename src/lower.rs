@@ -41,7 +41,7 @@ impl<'a> LoweringContext<'a> {
     }
 
     pub fn get_agent(&mut self, for_who: &ForWho, agent_to_get: &AgentName) -> TermId {
-        if agent_to_get.0.is_constant() {
+        if agent_to_get.is_constant() {
             return *self
                 .mappings
                 .global_agent_table
@@ -65,7 +65,7 @@ impl<'a> LoweringContext<'a> {
                     key: agent_to_get.0.clone().into(),
                 })
                 .or_insert_with(|| {
-                    if agent_to_get.0.is_constant() {
+                    if agent_to_get.is_constant() {
                         self.unifier
                             .register_new_constant(Some(agent_to_get.0.clone()), Kind::Agent)
                     } else {
@@ -169,13 +169,7 @@ impl<'a> LoweringContext<'a> {
                 protocol::Constant::Nonce(_) => todo!(),
             },
             protocol::Term::Composition { func, args } => {
-                let func = match func {
-                    Func::SymEnc => Func::SymEnc,
-                    Func::AsymEnc => Func::AsymEnc,
-                    Func::Exp => Func::Exp,
-                    Func::Inv => Func::Inv,
-                    Func::User(u) => Func::User(self.get_global_constant(u.as_str())),
-                };
+                let func = func.map(|u| self.get_global_constant(u.as_str()));
                 let args = args
                     .into_iter()
                     .map(|arg| self.lower_term(for_who, initiations, arg))
@@ -196,13 +190,7 @@ impl<'a> LoweringContext<'a> {
             protocol::Term::Variable(v) => self.get_global_constant(v.as_str()),
             protocol::Term::Constant(_) => unreachable!(),
             protocol::Term::Composition { func, args } => {
-                let func = match func {
-                    Func::SymEnc => Func::SymEnc,
-                    Func::AsymEnc => Func::AsymEnc,
-                    Func::Exp => Func::Exp,
-                    Func::Inv => Func::Inv,
-                    Func::User(u) => Func::User(self.get_global_constant(u.as_str())),
-                };
+                let func = func.map(|u| self.get_global_constant(u.as_str()));
                 let args = args.into_iter().map(|t| self.lower_ast_term(t)).collect();
                 self.unifier.register_new_composition(func, args)
             }

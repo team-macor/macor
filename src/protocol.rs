@@ -467,4 +467,7 @@ impl AgentName {
     pub fn span(&self) -> miette::SourceSpan {
         self.0 .1
     }
+    pub fn is_constant(&self) -> bool {
+        self.0.is_constant()
+    }
 }

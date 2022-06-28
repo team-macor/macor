@@ -3,9 +3,10 @@ use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 
 use crate::{
+    dolev_yao::Knowledge,
     lower::{ForWho, LoweringContext},
     protocol::{self, Direction, Protocol, ProtocolAgent, SessionId},
-    terms::{Knowledge, TermId, Unifier},
+    terms::{TermId, Unifier},
 };
 
 #[derive(Debug, Clone)]
@@ -75,10 +76,10 @@ impl Session {
         let mut intruder_knowledge = Knowledge::default();
 
         for role in &roles {
-            intruder_knowledge.0.push(role.agent_id);
+            intruder_knowledge.add(role.agent_id);
         }
         for agent in &protocol.agents {
-            if agent.name.0.is_constant() {
+            if agent.name.is_constant() {
                 continue;
             }
 
@@ -91,11 +92,10 @@ impl Session {
                 );
 
                 if intruder_knowledge
-                    .0
                     .iter()
-                    .all(|&term| !ctx.unifier.are_unified(term, registered_term))
+                    .all(|term| !ctx.unifier.are_unified(term, registered_term))
                 {
-                    intruder_knowledge.0.push(registered_term);
+                    intruder_knowledge.add(registered_term);
                 }
             }
         }
@@ -118,9 +118,8 @@ impl Session {
             println!(
                 "> IK: {:?}",
                 role.initial_knowledge
-                    .0
                     .iter()
-                    .map(|&term| unifier.resolve_full(term))
+                    .map(|term| unifier.resolve_full(term))
                     .collect_vec()
             );
             for t in &role.strand {
@@ -189,7 +188,7 @@ impl Role {
         Role {
             name: agent.name.0.clone(),
             agent_id: ctx.get_agent(&for_who, &agent.name),
-            initial_knowledge: Knowledge(initial_knowledge),
+            initial_knowledge: Knowledge::new(initial_knowledge),
             strand,
         }
     }

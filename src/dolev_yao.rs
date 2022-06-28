@@ -1,15 +1,82 @@
+use itertools::Itertools;
+
 use crate::protocol::Func;
-use crate::terms::{Knowledge, Term, TermId, Unifier};
+use crate::terms::{FullTerm, Term, TermId, Unifier};
+
+#[derive(Debug, Clone, Default)]
+pub struct Knowledge(Vec<TermId>);
+
+impl Knowledge {
+    pub fn new(terms: Vec<TermId>) -> Knowledge {
+        Knowledge(terms)
+    }
+    pub fn resoled(&self, unifier: &mut Unifier) -> Vec<FullTerm> {
+        self.0.iter().map(|&id| unifier.resolve_full(id)).collect()
+    }
+    pub fn iter(&self) -> impl Iterator<Item = TermId> + '_ {
+        self.0.iter().copied()
+    }
+    pub fn add(&mut self, term: TermId) {
+        self.0.push(term)
+    }
+    pub fn extend(&mut self, terms: impl IntoIterator<Item = TermId>) {
+        self.0.extend(terms)
+    }
+    pub fn contains_term_id(&self, term: TermId) -> bool {
+        self.0.contains(&term)
+    }
+    pub fn can_construct(&self, unifier: &mut Unifier, term: TermId) -> bool {
+        // eprintln!(
+        //     "Can construct {:?} with knowledge {:?}",
+        //     unifier.resolve_full(term),
+        //     self.0
+        //         .iter()
+        //         .map(|&term| unifier.resolve_full(term))
+        //         .format(", ")
+        // );
+        // if self.0.iter().any(|&k| unifier.table.unioned(k, term)) {
+        //     return true;
+        // }
+        // if self.0.iter().any(|&k| unifier.unify(k, term).is_ok()) {
+        //     return true;
+        // }
+
+        if can_derive(self, term, unifier) {
+            return true;
+        }
+
+        false
+    }
+}
+
+impl IntoIterator for Knowledge {
+    type Item = TermId;
+
+    type IntoIter = std::vec::IntoIter<TermId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+impl<'a> IntoIterator for &'a Knowledge {
+    type Item = TermId;
+
+    type IntoIter = std::iter::Copied<std::slice::Iter<'a, TermId>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter().copied()
+    }
+}
 
 pub fn can_derive(knowledge: &Knowledge, goal: TermId, unifier: &mut Unifier) -> bool {
     let mut stack = vec![goal];
 
     while let Some(term) = stack.pop() {
         // Axiom
-        if knowledge.0.iter().any(|t| unifier.are_unified(*t, term)) {
+        if knowledge.iter().any(|t| unifier.are_unified(t, term)) {
             continue;
         }
-        if knowledge.0.iter().any(|t| unifier.unify(*t, term).is_ok()) {
+        if knowledge.iter().any(|t| unifier.unify(t, term).is_ok()) {
             continue;
         }
 
@@ -20,7 +87,7 @@ pub fn can_derive(knowledge: &Knowledge, goal: TermId, unifier: &mut Unifier) ->
                 match func {
                     Func::Inv => return false,
                     Func::User(c) => {
-                        if !knowledge.0.iter().any(|f| unifier.are_unified(*f, c)) {
+                        if !knowledge.iter().any(|f| unifier.are_unified(f, c)) {
                             return false;
                         }
                     }
@@ -44,8 +111,8 @@ pub fn can_derive(knowledge: &Knowledge, goal: TermId, unifier: &mut Unifier) ->
 pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
     let mut new_terms: Vec<TermId> = Vec::new();
     loop {
-        for term in knowledge.0.iter() {
-            match unifier.probe_value(*term) {
+        for term in knowledge.iter() {
+            match unifier.probe_value(term) {
                 Term::Composition(func, args) => match func {
                     Func::SymEnc => {
                         if args.len() != 2 {
@@ -87,7 +154,7 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
             }
         }
 
-        new_terms.retain(|term| !knowledge.0.contains(term));
+        new_terms.retain(|term| !knowledge.contains_term_id(*term));
 
         // remove tuples
         if new_terms.is_empty() {
@@ -107,9 +174,9 @@ pub fn augment_knowledge(knowledge: &mut Knowledge, unifier: &mut Unifier) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::lower::LoweringContext;
     use itertools::Itertools;
-
-    use crate::{lower::LoweringContext, terms::Knowledge};
 
     // TODO: needs to handle term with commas like {|A, B|} as 1 term (call parser)
     macro_rules! scenario {
@@ -124,7 +191,7 @@ mod tests {
             let mut mapper = Default::default();
             let mut ctx = LoweringContext::new(&mut unifier, &mut mapper);
 
-            let mut knowledge = Knowledge(
+            let mut knowledge = Knowledge::new(
                 knowledge
                     .into_iter()
                     .map(|k| ctx.lower_ast_term(k.into()))
