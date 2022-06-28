@@ -373,7 +373,7 @@ impl Unifier {
             },
         )
     }
-    pub fn are_unified(&mut self, a: TermId, b: TermId) -> bool {
+    pub fn are_equal(&mut self, a: TermId, b: TermId) -> bool {
         if self.table.unioned(a, b) {
             return true;
         }
@@ -382,20 +382,20 @@ impl Unifier {
             (Composition(f, xs), Composition(g, ys)) => {
                 xs.len() == ys.len()
                     && match (f, g) {
-                        (Func::User(f), Func::User(g)) => self.are_unified(f, g),
+                        (Func::User(f), Func::User(g)) => self.are_equal(f, g),
                         (f, g) => f == g,
                     }
                     && xs
                         .iter()
                         .zip_eq(ys.iter())
-                        .all(|(&x, &y)| self.are_unified(x, y))
+                        .all(|(&x, &y)| self.are_equal(x, y))
             }
             (Tuple(xs), Tuple(ys)) => {
                 xs.len() == ys.len()
                     && xs
                         .iter()
                         .zip_eq(ys.iter())
-                        .all(|(&x, &y)| self.are_unified(x, y))
+                        .all(|(&x, &y)| self.are_equal(x, y))
             }
             (x, y) => x == y,
         }

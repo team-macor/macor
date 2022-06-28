@@ -33,7 +33,7 @@ impl Knowledge {
         self.iter().any(|t| match unifier.probe_value(t) {
             Term::Composition(Func::Inv, args) => {
                 assert_eq!(args.len(), 1);
-                unifier.are_unified(args[0], goal)
+                unifier.are_equal(args[0], goal)
             }
             _ => false,
         })
@@ -52,7 +52,7 @@ impl Knowledge {
             }
 
             // Axiom
-            if self.iter().any(|t| unifier.are_unified(t, term)) {
+            if self.iter().any(|t| unifier.are_equal(t, term)) {
                 continue;
             }
             // TODO: This step can branch depending on which term from the
@@ -68,7 +68,7 @@ impl Knowledge {
                     match func {
                         Func::Inv => return false,
                         Func::User(c) => {
-                            if !self.iter().any(|f| unifier.are_unified(f, c)) {
+                            if !self.iter().any(|f| unifier.are_equal(f, c)) {
                                 return false;
                             }
                         }
@@ -127,7 +127,7 @@ impl Knowledge {
                                     if self.iter().any(|t| match unifier.probe_value(t) {
                                         Term::Composition(Func::Inv, args) => {
                                             assert_eq!(args.len(), 1);
-                                            unifier.are_unified(args[0], key)
+                                            unifier.are_equal(args[0], key)
                                         }
                                         _ => false,
                                     }) =>

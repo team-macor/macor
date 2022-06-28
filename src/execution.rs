@@ -101,7 +101,7 @@ impl Intruder {
                         && self.conforms_to_constraints_without_augment(&mut new_unifier) && !secret
                         .between_agents
                         .iter()
-                        .any(|agent| new_unifier.are_unified(intruder_id, *agent))
+                        .any(|agent| new_unifier.are_equal(intruder_id, *agent))
                     {
                         eprintln!(
                             "LEAKED {:?} ({:?})",

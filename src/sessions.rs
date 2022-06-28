@@ -94,7 +94,7 @@ impl Session {
 
                 if intruder_knowledge
                     .iter()
-                    .all(|term| !ctx.unifier.are_unified(term, registered_term))
+                    .all(|term| !ctx.unifier.are_equal(term, registered_term))
                 {
                     intruder_knowledge.add(registered_term);
                 }
