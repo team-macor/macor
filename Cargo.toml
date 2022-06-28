@@ -25,6 +25,7 @@ ena = "0.14.0"
 rayon = "1.5.3"
 clap = { version = "3.2.5", features = ["derive"] }
 yansi = "0.5.1"
+tinyvec = { version = "1.6.0", features = ["alloc"] }
 
 [profile.release]
 debug = true

@@ -3,6 +3,7 @@ use crate::protocol::Func;
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 use itertools::Itertools;
 use smol_str::SmolStr;
+use tinyvec::TinyVec;
 use yansi::Paint;
 
 #[derive(Clone, Default)]
@@ -81,7 +82,7 @@ impl std::fmt::Debug for ConstantId {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct TermId(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -91,16 +92,23 @@ pub enum Kind {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Term<M> {
+pub enum Term<M: Default> {
     Intruder,
     Variable(Hint, Kind),
     Constant(ConstantId, Kind),
-    Composition(Func<M>, Vec<M>),
-    Tuple(Vec<M>),
+    Composition(Func<M>, TinyVec<[M; 4]>),
+    Tuple(TinyVec<[M; 4]>),
 }
 use self::Term::*;
 
-impl<M> Term<M> {
+impl<M: Default> Default for Term<M> {
+    fn default() -> Self {
+        // TODO: This is weird?
+        Term::Intruder
+    }
+}
+
+impl<M: Default> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
             Intruder => Kind::Agent,
@@ -108,7 +116,7 @@ impl<M> Term<M> {
             Composition(_, _) | Tuple(_) => Kind::Other,
         }
     }
-    pub fn map<T>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
+    pub fn map<T: Default>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
         match self {
             Intruder => Intruder,
             Variable(hint, kind) => Variable(hint.clone(), *kind),
@@ -123,10 +131,10 @@ impl<M> Term<M> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FullTerm(pub Term<Box<FullTerm>>);
 
-impl<M: std::fmt::Debug> std::fmt::Debug for Term<M> {
+impl<M: std::fmt::Debug + Default> std::fmt::Debug for Term<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
@@ -297,10 +305,11 @@ impl Unifier {
         self.table.new_key(Variable(hint.into(), kind))
     }
     pub fn register_new_composition(&mut self, func: Func<TermId>, args: Vec<TermId>) -> TermId {
-        self.table.new_key(Composition(func, args))
+        self.table
+            .new_key(Composition(func, args.into_iter().collect()))
     }
     pub fn register_new_tuple(&mut self, terms: Vec<TermId>) -> TermId {
-        self.table.new_key(Tuple(terms))
+        self.table.new_key(Tuple(terms.into_iter().collect()))
     }
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
@@ -422,6 +431,8 @@ impl Unifier {
 
 #[cfg(test)]
 mod tests {
+    use tinyvec::tiny_vec;
+
     use super::*;
 
     impl Unifier {
@@ -470,7 +481,7 @@ mod tests {
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Tuple(vec![
+            FullTerm(Tuple(tiny_vec![
                 box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
                 box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
             ]))
@@ -499,7 +510,7 @@ mod tests {
             unifier.resolve_full(a),
             FullTerm(Composition(
                 Func::Exp,
-                vec![
+                tiny_vec![
                     box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
                     box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
                 ]
