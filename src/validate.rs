@@ -4,7 +4,7 @@ use miette::SourceSpan;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::{self, Knowledge},
+    dolev_yao::Knowledge,
     lower::LoweringContext,
     protocol::{Direction, Protocol, SessionId},
     sessions::Session,
@@ -127,7 +127,7 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                     }
 
                     for (term_i, term) in sender_term.terms.iter().enumerate() {
-                        if !sender_state.knowledge.can_construct(unifier, *term) {
+                        if !sender_state.knowledge.can_derive(unifier, *term) {
                             errors.push(ValidateError::TermIsNotConstructable {
                                 src: src.to_string(),
                                 err_span: sender_term.ast_node.message.terms[term_i]
@@ -150,7 +150,9 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                     agent_states[recipient_i]
                         .knowledge
                         .extend(sender_term.terms.iter().cloned());
-                    dolev_yao::augment_knowledge(&mut agent_states[recipient_i].knowledge, unifier);
+                    agent_states[recipient_i]
+                        .knowledge
+                        .augment_knowledge(unifier);
 
                     did_progress = true;
                 } else {

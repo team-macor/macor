@@ -4,7 +4,6 @@ use itertools::Itertools;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao,
     dolev_yao::Knowledge,
     protocol::{Direction, SessionId},
     sessions::Session,
@@ -84,7 +83,7 @@ impl Intruder {
                 let mut new_unifier = unifier.clone();
 
                 let intruder_id = unifier.intruder();
-                dolev_yao::augment_knowledge(&mut knowledge, &mut new_unifier);
+                knowledge.augment_knowledge(&mut new_unifier);
 
                 // println!(
                 //     "Trying to construct {:?} with knowledge [{:?}]\n",
@@ -125,11 +124,11 @@ impl Intruder {
         self.constraints
             .iter()
             .map(|r| r.as_ref())
-            .all(|(k, terms)| terms.iter().all(|&term| k.can_construct(unifier, term)))
+            .all(|(k, terms)| terms.iter().all(|&term| k.can_derive(unifier, term)))
     }
 
     fn conforms_to_constraints(&mut self, unifier: &mut Unifier) -> bool {
-        dolev_yao::augment_knowledge(&mut self.knowledge, unifier);
+        self.knowledge.augment_knowledge(unifier);
         self.conforms_to_constraints_without_augment(unifier)
     }
 }

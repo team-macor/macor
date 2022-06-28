@@ -1,4 +1,3 @@
-use crate::dolev_yao::can_derive;
 use crate::protocol::Func;
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
