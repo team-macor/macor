@@ -2,39 +2,38 @@ use crate::protocol::Func;
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 use itertools::Itertools;
-use smol_str::SmolStr;
 use tinyvec::TinyVec;
 use yansi::Paint;
 
-#[derive(Clone, Default)]
-pub struct Hint(Option<SmolStr>);
+#[derive(Clone, Copy, Default)]
+pub struct Hint(Option<&'static str>);
 
 impl Hint {
     pub fn none() -> Self {
         Hint(None)
     }
-    pub fn unwrap(self) -> SmolStr {
+    pub fn unwrap(self) -> &'static str {
         self.0.unwrap()
     }
-    fn join(&self, other: &Self) -> Self {
-        match (&self.0, &other.0) {
+    fn join(self, other: Self) -> Self {
+        match (self.0, other.0) {
             (None, None) => Hint(None),
-            (None, x @ Some(_)) | (x @ Some(_), None) | (x @ Some(_), Some(_)) => Hint(x.clone()),
+            (None, x @ Some(_)) | (x @ Some(_), None) | (x @ Some(_), Some(_)) => Hint(x),
         }
     }
 }
 
 impl<S> From<Option<S>> for Hint
 where
-    S: Into<SmolStr>,
+    String: From<S>,
 {
     fn from(x: Option<S>) -> Self {
-        Hint(x.map(|s| s.into()))
+        Hint(x.map(|s| -> &'static str { Box::leak(String::from(s).into_boxed_str()) }))
     }
 }
 
 impl std::ops::Deref for Hint {
-    type Target = Option<SmolStr>;
+    type Target = Option<&'static str>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -61,25 +60,18 @@ impl PartialEq for Hint {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Hash)]
-pub struct ConstantId(u32, pub Hint);
+#[derive(Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub struct ConstantId(u32);
 
 impl ConstantId {
     pub fn new(i: u32) -> Self {
-        ConstantId(i, Hint::default())
-    }
-    pub fn hint(&self, hint: impl Into<SmolStr>) -> Self {
-        ConstantId(self.0, Hint(Some(hint.into())))
+        ConstantId(i)
     }
 }
 
 impl std::fmt::Debug for ConstantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(name) = self.1.as_deref() {
-            write!(f, "!{}[{}]", name, self.0)
-        } else {
-            write!(f, "![{}]", self.0)
-        }
+        write!(f, "{}", self.0)
     }
 }
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -95,7 +87,7 @@ pub enum Kind {
 pub enum Term<M: Default> {
     Intruder,
     Variable(Hint, Kind),
-    Constant(ConstantId, Kind),
+    Constant(ConstantId, Hint, Kind),
     Composition(Func<M>, TinyVec<[M; 4]>),
     Tuple(TinyVec<[M; 4]>),
 }
@@ -112,15 +104,15 @@ impl<M: Default> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
             Intruder => Kind::Agent,
-            Variable(_, kind) | Constant(_, kind) => *kind,
+            Variable(_, kind) | Constant(_, _, kind) => *kind,
             Composition(_, _) | Tuple(_) => Kind::Other,
         }
     }
     pub fn map<T: Default>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
         match self {
             Intruder => Intruder,
-            Variable(hint, kind) => Variable(hint.clone(), *kind),
-            Constant(c, kind) => Constant(c.clone(), *kind),
+            Variable(hint, kind) => Variable(*hint, *kind),
+            Constant(c, hint, kind) => Constant(*c, *hint, *kind),
             Composition(n, args) => Composition(n.map(|x| f(x)), args.iter().map(f).collect()),
             Tuple(ts) => Tuple(ts.iter().map(f).collect()),
         }
@@ -138,24 +130,34 @@ impl<M: std::fmt::Debug + Default> std::fmt::Debug for Term<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
-            Self::Variable(arg0, Kind::Agent) => {
-                if let Some(k) = arg0.as_deref() {
+            Self::Variable(hint, Kind::Agent) => {
+                if let Some(k) = hint.as_deref() {
                     write!(f, "{}", Paint::cyan(k).underline())
                 } else {
                     write!(f, "{}", Paint::cyan("Agent").underline())
                 }
             }
-            Self::Variable(arg0, Kind::Other) => {
-                if let Some(k) = arg0.as_deref() {
+            Self::Variable(hint, Kind::Other) => {
+                if let Some(k) = hint.as_deref() {
                     write!(f, "{}", Paint::cyan(k))
                 } else {
                     write!(f, "{}", Paint::cyan("Other"))
                 }
             }
-            Self::Constant(c, kind) => match kind {
-                Kind::Agent => Paint::red(c).underline().fmt(f),
-                Kind::Other => Paint::red(c).fmt(f),
-            },
+            Self::Constant(_, hint, Kind::Agent) => {
+                if let Some(k) = hint.as_deref() {
+                    write!(f, "!{}", Paint::red(k).underline())
+                } else {
+                    write!(f, "!{}", Paint::red("Agent").underline())
+                }
+            }
+            Self::Constant(_, hint, Kind::Other) => {
+                if let Some(k) = hint.as_deref() {
+                    write!(f, "!{}", Paint::red(k))
+                } else {
+                    write!(f, "!{}", Paint::red("Other"))
+                }
+            }
             Self::Composition(Func::AsymEnc, args) => {
                 let (term, key) = (&args[0], &args[1]);
                 write!(
@@ -206,14 +208,14 @@ impl UnifyValue for Term<TermId> {
         Ok(match (l, r) {
             (Variable(l, lk), Variable(r, rk)) => {
                 if lk == rk {
-                    Variable(l.join(r), *lk)
+                    Variable(l.join(*r), *lk)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
             }
-            (Variable(_, vk), Constant(c, ck)) | (Constant(c, ck), Variable(_, vk)) => {
+            (Variable(_, vk), Constant(c, h, ck)) | (Constant(c, h, ck), Variable(_, vk)) => {
                 if ck == vk {
-                    Constant(c.clone(), *ck)
+                    Constant(*c, *h, *ck)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
@@ -225,9 +227,9 @@ impl UnifyValue for Term<TermId> {
             (Variable(_, Kind::Other), Tuple(ts)) | (Tuple(ts), Variable(_, Kind::Other)) => {
                 Tuple(ts.clone())
             }
-            (Constant(l, lk), Constant(r, rk)) => {
+            (Constant(l, lh, lk), Constant(r, rh, rk)) => {
                 if l == r && lk == rk {
-                    Constant(l.clone(), *lk)
+                    Constant(*l, lh.join(*rh), *lk)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
@@ -297,9 +299,9 @@ impl Unifier {
         self.intruder
     }
     pub fn register_new_constant(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
-        let cid = ConstantId(self.next_constant, hint.into());
+        let cid = ConstantId(self.next_constant);
         self.next_constant += 1;
-        self.table.new_key(Constant(cid, kind))
+        self.table.new_key(Constant(cid, hint.into(), kind))
     }
     pub fn register_new_variable(&mut self, hint: impl Into<Hint>, kind: Kind) -> TermId {
         self.table.new_key(Variable(hint.into(), kind))
@@ -335,7 +337,7 @@ impl Unifier {
                     self.table.unify_var_var(l, r)?;
                     l
                 }
-                (Constant(x, xk), Constant(y, yk)) => {
+                (Constant(x, _, xk), Constant(y, _, yk)) => {
                     if x == y && xk == yk {
                         l
                     } else {
@@ -438,7 +440,7 @@ mod tests {
     impl Unifier {
         fn constant(&mut self, i: u32) -> TermId {
             self.table
-                .new_key(Constant(ConstantId(i, Hint::none()), Kind::Other))
+                .new_key(Constant(ConstantId(i), Hint::none(), Kind::Other))
         }
         fn variable(&mut self) -> TermId {
             self.table.new_key(Variable(Hint::none(), Kind::Other))
@@ -457,7 +459,7 @@ mod tests {
         assert_eq!(unifier.table.probe_value(a), unifier.table.probe_value(b));
         assert_eq!(
             unifier.table.probe_value(b),
-            Constant(ConstantId(0, Hint::none()), Kind::Other)
+            Constant(ConstantId(0), Hint::none(), Kind::Other)
         );
 
         Ok(())
@@ -482,8 +484,8 @@ mod tests {
         assert_eq!(
             unifier.resolve_full(a),
             FullTerm(Tuple(tiny_vec![
-                box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
+                box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
             ]))
         );
 
@@ -511,8 +513,8 @@ mod tests {
             FullTerm(Composition(
                 Func::Exp,
                 tiny_vec![
-                    box FullTerm(Constant(ConstantId(0, Hint::none()), Kind::Other)),
-                    box FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
+                    box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                    box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
                 ]
             ))
         );
@@ -552,11 +554,11 @@ mod tests {
 
         assert_eq!(
             world_1.resolve_full(a),
-            FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
         );
         assert_eq!(
             world_2.resolve_full(a),
-            FullTerm(Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(2), Hint::none(), Kind::Other))
         );
 
         Ok(())
@@ -577,7 +579,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Constant(ConstantId(1, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
         );
 
         unifier.table.rollback_to(snap);
@@ -586,7 +588,7 @@ mod tests {
 
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Constant(ConstantId(2, Hint::none()), Kind::Other))
+            FullTerm(Constant(ConstantId(2), Hint::none(), Kind::Other))
         );
 
         Ok(())

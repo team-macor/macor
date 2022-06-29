@@ -30,8 +30,8 @@ impl std::fmt::Display for FullTerm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.0 {
             Term::Intruder => write!(f, "i"),
-            Term::Variable(inner, _) => write!(f, "{}", inner.as_ref().unwrap()),
-            Term::Constant(inner, _) => write!(f, "{}", inner.1.clone().unwrap()),
+            Term::Variable(hint, _) => write!(f, "{}", hint.as_ref().unwrap()),
+            Term::Constant(_, hint, _) => write!(f, "{}", hint.as_ref().unwrap()),
             Term::Composition(func, args) => match func {
                 Func::SymEnc => write!(f, "{{|{}|}}({})", args[0], args[1]),
                 Func::AsymEnc => write!(f, "{{{}}}({})", args[0], args[1]),
@@ -51,7 +51,7 @@ impl TraceEntry<Participant, FullTerm> {
                 Some((_, sender)) => match unifier.probe_value(*sender) {
                     Term::Intruder => Participant::Intruder,
                     Term::Variable(s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
-                    Term::Constant(s, Kind::Agent) => Participant::Agent(s.1.unwrap().to_string()),
+                    Term::Constant(_, s, Kind::Agent) => Participant::Agent(s.unwrap().to_string()),
                     u => unreachable!("Sender must be agent (or constant agents), was {:?}", u),
                 },
                 None => Participant::Intruder,

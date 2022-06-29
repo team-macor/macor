@@ -48,7 +48,7 @@ impl<'a> LoweringContext<'a> {
                 .entry(agent_to_get.clone())
                 .or_insert_with(|| {
                     self.unifier
-                        .register_new_constant(Some(agent_to_get.0.clone()), Kind::Agent)
+                        .register_new_constant(Some(agent_to_get.0.to_string()), Kind::Agent)
                 });
         }
 
@@ -67,7 +67,7 @@ impl<'a> LoweringContext<'a> {
                 .or_insert_with(|| {
                     if agent_to_get.is_constant() {
                         self.unifier
-                            .register_new_constant(Some(agent_to_get.0.clone()), Kind::Agent)
+                            .register_new_constant(Some(agent_to_get.0.to_string()), Kind::Agent)
                     } else {
                         self.unifier.register_new_variable(
                             Some(format!("{}@{}:{}", agent.0, session_id.0, agent_to_get.0)),

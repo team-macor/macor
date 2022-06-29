@@ -144,7 +144,7 @@ impl Knowledge {
                             Move::Remove
                         }
                         Term::Variable(_, _) => Move::Keep,
-                        Term::Constant(_, _) => Move::Move,
+                        Term::Constant(_, _, _) => Move::Move,
                         Term::Intruder => Move::Move,
                     }),
             );
