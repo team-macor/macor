@@ -19,7 +19,7 @@ impl std::fmt::Debug for AgentName {
 #[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Hash)]
 pub struct SessionId(pub u32);
 
-#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord, Hash)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, PartialOrd, Ord, Hash)]
 pub enum Func<U = Ident<SmolStr>> {
     SymEnc,
     AsymEnc,

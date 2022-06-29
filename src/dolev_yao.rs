@@ -74,12 +74,12 @@ impl Knowledge {
                         }
                         _ => {}
                     }
-                    for a in args {
+                    for &a in args {
                         stack.push(a);
                     }
                 }
                 Term::Tuple(ts) => {
-                    for a in ts {
+                    for &a in ts {
                         stack.push(a);
                     }
                 }
@@ -103,7 +103,7 @@ impl Knowledge {
                     .iter()
                     .map(|&term| match unifier.probe_value(term) {
                         Term::Composition(func @ (Func::SymEnc | Func::AsymEnc), args) => {
-                            let (inner, key) = if let &[inner, key] = &args[..] {
+                            let (inner, key) = if let &[inner, key] = args {
                                 (inner, key)
                             } else {
                                 unreachable!("{func:?} must only contain 2 arguments")
@@ -140,7 +140,7 @@ impl Knowledge {
                         }
                         Term::Composition(_, _) => Move::Move,
                         Term::Tuple(terms) => {
-                            new_terms.extend(&terms);
+                            new_terms.extend_from_slice(terms);
                             Move::Remove
                         }
                         Term::Variable(_, _) => Move::Keep,

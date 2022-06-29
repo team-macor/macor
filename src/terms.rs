@@ -2,7 +2,6 @@ use crate::protocol::Func;
 
 use ena::unify::{InPlaceUnificationTable, UnifyKey, UnifyValue};
 use itertools::Itertools;
-use tinyvec::TinyVec;
 use yansi::Paint;
 
 #[derive(Clone, Copy, Default)]
@@ -74,7 +73,7 @@ impl std::fmt::Debug for ConstantId {
         write!(f, "{}", self.0)
     }
 }
-#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct TermId(u32);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -83,24 +82,17 @@ pub enum Kind {
     Other,
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Term<M: Default> {
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Term<M: 'static> {
     Intruder,
     Variable(Hint, Kind),
     Constant(ConstantId, Hint, Kind),
-    Composition(Func<M>, TinyVec<[M; 4]>),
-    Tuple(TinyVec<[M; 4]>),
+    Composition(Func<M>, &'static [M]),
+    Tuple(&'static [M]),
 }
 use self::Term::*;
 
-impl<M: Default> Default for Term<M> {
-    fn default() -> Self {
-        // TODO: This is weird?
-        Term::Intruder
-    }
-}
-
-impl<M: Default> Term<M> {
+impl<M> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
             Intruder => Kind::Agent,
@@ -108,13 +100,16 @@ impl<M: Default> Term<M> {
             Composition(_, _) | Tuple(_) => Kind::Other,
         }
     }
-    pub fn map<T: Default>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
+    pub fn map<T>(&self, mut f: impl FnMut(&M) -> T) -> Term<T> {
         match self {
             Intruder => Intruder,
             Variable(hint, kind) => Variable(*hint, *kind),
             Constant(c, hint, kind) => Constant(*c, *hint, *kind),
-            Composition(n, args) => Composition(n.map(|x| f(x)), args.iter().map(f).collect()),
-            Tuple(ts) => Tuple(ts.iter().map(f).collect()),
+            Composition(n, args) => Composition(
+                n.map(|x| f(x)),
+                Box::leak(args.iter().map(f).collect_vec().into_boxed_slice()),
+            ),
+            Tuple(ts) => Tuple(Box::leak(ts.iter().map(f).collect_vec().into_boxed_slice())),
         }
     }
 
@@ -123,10 +118,10 @@ impl<M: Default> Term<M> {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FullTerm(pub Term<Box<FullTerm>>);
 
-impl<M: std::fmt::Debug + Default> std::fmt::Debug for Term<M> {
+impl<M: std::fmt::Debug> std::fmt::Debug for Term<M> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Intruder => write!(f, "{}", Paint::magenta("i").bold()),
@@ -204,32 +199,30 @@ impl std::fmt::Debug for FullTerm {
 impl UnifyValue for Term<TermId> {
     type Error = UnificationError;
 
-    fn unify_values(l: &Self, r: &Self) -> Result<Self, Self::Error> {
+    fn unify_values(&l: &Self, &r: &Self) -> Result<Self, Self::Error> {
         Ok(match (l, r) {
             (Variable(l, lk), Variable(r, rk)) => {
                 if lk == rk {
-                    Variable(l.join(*r), *lk)
+                    Variable(l.join(r), lk)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
             }
             (Variable(_, vk), Constant(c, h, ck)) | (Constant(c, h, ck), Variable(_, vk)) => {
                 if ck == vk {
-                    Constant(*c, *h, *ck)
+                    Constant(c, h, ck)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
             }
             (Variable(_, Kind::Other), Composition(func, args))
-            | (Composition(func, args), Variable(_, Kind::Other)) => {
-                Composition(func.clone(), args.clone())
-            }
+            | (Composition(func, args), Variable(_, Kind::Other)) => Composition(func, args),
             (Variable(_, Kind::Other), Tuple(ts)) | (Tuple(ts), Variable(_, Kind::Other)) => {
-                Tuple(ts.clone())
+                Tuple(ts)
             }
             (Constant(l, lh, lk), Constant(r, rh, rk)) => {
                 if l == r && lk == rk {
-                    Constant(*l, lh.join(*rh), *lk)
+                    Constant(l, lh.join(rh), lk)
                 } else {
                     return Err(UnificationError::DidNotUnify);
                 }
@@ -238,14 +231,14 @@ impl UnifyValue for Term<TermId> {
                 if l_func != r_func && l_args.len() == r_args.len() {
                     return Err(UnificationError::DidNotUnify);
                 } else {
-                    Composition(l_func.clone(), l_args.clone())
+                    Composition(l_func, l_args)
                 }
             }
             (Tuple(ls), Tuple(rs)) => {
                 if ls.len() != rs.len() {
                     return Err(UnificationError::DidNotUnify);
                 } else {
-                    Tuple(ls.clone())
+                    Tuple(ls)
                 }
             }
             _ => return Err(UnificationError::DidNotUnify),
@@ -307,11 +300,15 @@ impl Unifier {
         self.table.new_key(Variable(hint.into(), kind))
     }
     pub fn register_new_composition(&mut self, func: Func<TermId>, args: Vec<TermId>) -> TermId {
-        self.table
-            .new_key(Composition(func, args.into_iter().collect()))
+        self.table.new_key(Composition(
+            func,
+            Box::leak(args.into_iter().collect_vec().into_boxed_slice()),
+        ))
     }
     pub fn register_new_tuple(&mut self, terms: Vec<TermId>) -> TermId {
-        self.table.new_key(Tuple(terms.into_iter().collect()))
+        self.table.new_key(Tuple(Box::leak(
+            terms.into_iter().collect_vec().into_boxed_slice(),
+        )))
     }
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
@@ -353,7 +350,7 @@ impl Unifier {
                         // );
                         return Err(UnificationError::DidNotUnify);
                     } else {
-                        for (l_arg, r_arg) in l_args.into_iter().zip_eq(r_args) {
+                        for (&l_arg, &r_arg) in l_args.iter().zip_eq(r_args) {
                             self.unify_inner(l_arg, r_arg)?;
                         }
                         self.table.unify_var_var(l, r)?;
@@ -364,7 +361,7 @@ impl Unifier {
                     if ls.len() != rs.len() {
                         return Err(UnificationError::DidNotUnify);
                     } else {
-                        for (l_arg, r_arg) in ls.into_iter().zip_eq(rs) {
+                        for (&l_arg, &r_arg) in ls.iter().zip_eq(rs) {
                             self.unify_inner(l_arg, r_arg)?;
                         }
                         self.table.unify_var_var(l, r)?;
@@ -433,8 +430,6 @@ impl Unifier {
 
 #[cfg(test)]
 mod tests {
-    use tinyvec::tiny_vec;
-
     use super::*;
 
     impl Unifier {
@@ -483,10 +478,13 @@ mod tests {
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Tuple(tiny_vec![
-                box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
-                box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
-            ]))
+            FullTerm(Tuple(Box::leak(
+                vec![
+                    box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                    box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
+                ]
+                .into_boxed_slice()
+            )))
         );
 
         Ok(())
@@ -512,10 +510,13 @@ mod tests {
             unifier.resolve_full(a),
             FullTerm(Composition(
                 Func::Exp,
-                tiny_vec![
-                    box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
-                    box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
-                ]
+                Box::leak(
+                    vec![
+                        box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                        box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
+                    ]
+                    .into_boxed_slice()
+                )
             ))
         );
 
