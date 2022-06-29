@@ -27,7 +27,18 @@ where
     String: From<S>,
 {
     fn from(x: Option<S>) -> Self {
-        Hint(x.map(|s| -> &'static str { Box::leak(String::from(s).into_boxed_str()) }))
+        use once_cell::sync::Lazy;
+
+        static HINT_INTERNER: Lazy<std::sync::Mutex<indexmap::IndexMap<String, &'static str>>> =
+            Lazy::new(Default::default);
+
+        Hint(x.map(|s| -> &'static str {
+            HINT_INTERNER
+                .lock()
+                .unwrap()
+                .entry(String::from(s))
+                .or_insert_with_key(|s| Box::leak(s.clone().into_boxed_str()))
+        }))
     }
 }
 
@@ -92,6 +103,10 @@ pub enum Term<M: 'static> {
 }
 use self::Term::*;
 
+fn leak_slice<T>(iter: impl IntoIterator<Item = T>) -> &'static [T] {
+    Box::leak(iter.into_iter().collect_vec().into_boxed_slice())
+}
+
 impl<M> Term<M> {
     pub fn kind(&self) -> Kind {
         match self {
@@ -105,11 +120,8 @@ impl<M> Term<M> {
             Intruder => Intruder,
             Variable(hint, kind) => Variable(*hint, *kind),
             Constant(c, hint, kind) => Constant(*c, *hint, *kind),
-            Composition(n, args) => Composition(
-                n.map(|x| f(x)),
-                Box::leak(args.iter().map(f).collect_vec().into_boxed_slice()),
-            ),
-            Tuple(ts) => Tuple(Box::leak(ts.iter().map(f).collect_vec().into_boxed_slice())),
+            Composition(n, args) => Composition(n.map(|x| f(x)), leak_slice(args.iter().map(f))),
+            Tuple(ts) => Tuple(leak_slice(ts.iter().map(f))),
         }
     }
 
@@ -300,15 +312,10 @@ impl Unifier {
         self.table.new_key(Variable(hint.into(), kind))
     }
     pub fn register_new_composition(&mut self, func: Func<TermId>, args: Vec<TermId>) -> TermId {
-        self.table.new_key(Composition(
-            func,
-            Box::leak(args.into_iter().collect_vec().into_boxed_slice()),
-        ))
+        self.table.new_key(Composition(func, leak_slice(args)))
     }
     pub fn register_new_tuple(&mut self, terms: Vec<TermId>) -> TermId {
-        self.table.new_key(Tuple(Box::leak(
-            terms.into_iter().collect_vec().into_boxed_slice(),
-        )))
+        self.table.new_key(Tuple(leak_slice(terms)))
     }
     /// Recursively unifies the two terms and returns either of the passed
     /// terms if they indeed do unify (since they are now equivalent), or
@@ -373,7 +380,7 @@ impl Unifier {
         )
     }
     pub fn are_equal(&mut self, a: TermId, b: TermId) -> bool {
-        if self.table.unioned(a, b) {
+        if a == b || self.table.unioned(a, b) {
             return true;
         }
 
@@ -478,13 +485,10 @@ mod tests {
         assert_eq!(unifier.resolve_full(a), unifier.resolve_full(b));
         assert_eq!(
             unifier.resolve_full(a),
-            FullTerm(Tuple(Box::leak(
-                vec![
-                    box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
-                    box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
-                ]
-                .into_boxed_slice()
-            )))
+            FullTerm(Tuple(leak_slice([
+                box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
+            ])))
         );
 
         Ok(())
@@ -510,13 +514,10 @@ mod tests {
             unifier.resolve_full(a),
             FullTerm(Composition(
                 Func::Exp,
-                Box::leak(
-                    vec![
-                        box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
-                        box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
-                    ]
-                    .into_boxed_slice()
-                )
+                leak_slice([
+                    box FullTerm(Constant(ConstantId(0), Hint::none(), Kind::Other)),
+                    box FullTerm(Constant(ConstantId(1), Hint::none(), Kind::Other))
+                ])
             ))
         );
 
