@@ -33,6 +33,8 @@ pub struct Mappings {
     global_constant_table: IndexMap<SmolStr, TermId>,
     constant_table: IndexMap<TableKey, TermId>,
     variable_table: IndexMap<TableKey, TermId>,
+
+    term_cache: IndexMap<(ForWho, protocol::Term), TermId>,
 }
 
 impl<'a> LoweringContext<'a> {
@@ -160,7 +162,12 @@ impl<'a> LoweringContext<'a> {
         initiations: &IndexMap<protocol::Variable, AgentName>,
         term: protocol::Term,
     ) -> TermId {
-        match term {
+        let key = (for_who.clone(), term.clone());
+        if let Some(id) = self.mappings.term_cache.get(&key) {
+            return *id;
+        }
+
+        let id = match term {
             protocol::Term::Variable(var) => self.lower_variable(for_who, initiations, &var),
             protocol::Term::Constant(c) => match c {
                 protocol::Constant::Agent(a) => self.get_agent(for_who, &a),
@@ -183,7 +190,11 @@ impl<'a> LoweringContext<'a> {
                     .collect();
                 self.unifier.register_new_tuple(terms)
             }
-        }
+        };
+
+        self.mappings.term_cache.insert(key, id);
+
+        id
     }
     pub fn lower_ast_term(&mut self, term: protocol::Term<crate::typing::UntypedStage>) -> TermId {
         match term {
