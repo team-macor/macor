@@ -195,7 +195,7 @@ impl Role {
                     terms,
                 }
             })
-            .collect();
+            .collect_vec();
 
         Role {
             name: agent.name.0.clone(),

@@ -4,7 +4,7 @@ use itertools::Itertools;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::Knowledge,
+    dolev_yao::{Knowledge, WithUnification},
     protocol::{Direction, SessionId},
     sessions::Session,
     terms::{TermId, Unifier},
@@ -124,7 +124,11 @@ impl Intruder {
         self.constraints
             .iter()
             .map(|r| r.as_ref())
-            .all(|(k, terms)| terms.iter().all(|&term| k.can_derive(unifier, term)))
+            .all(|(k, terms)| {
+                terms
+                    .iter()
+                    .all(|&term| k.can_derive(unifier, term, WithUnification::Yes))
+            })
     }
 
     fn conforms_to_constraints(&mut self, unifier: &mut Unifier) -> bool {

@@ -1,6 +1,13 @@
 use crate::protocol::Func;
 use crate::terms::{FullTerm, Term, TermId, Unifier};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum WithUnification {
+    #[default]
+    No,
+    Yes,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Knowledge {
     terms: Vec<TermId>,
@@ -38,7 +45,12 @@ impl Knowledge {
             _ => false,
         })
     }
-    pub fn can_derive(&self, unifier: &mut Unifier, goal: TermId) -> bool {
+    pub fn can_derive(
+        &self,
+        unifier: &mut Unifier,
+        goal: TermId,
+        with_unification: WithUnification,
+    ) -> bool {
         let mut stack = vec![goal];
 
         while let Some(term) = stack.pop() {
@@ -58,7 +70,9 @@ impl Knowledge {
             // TODO: This step can branch depending on which term from the
             // knowledge was unified with. Consider propagating the branching up
             // throughout the search.
-            if self.iter().any(|t| unifier.unify(t, term).is_ok()) {
+            if with_unification == WithUnification::Yes
+                && self.iter().any(|t| unifier.unify(t, term).is_ok())
+            {
                 continue;
             }
 
@@ -112,7 +126,9 @@ impl Knowledge {
                             match func {
                                 // Symmetric encryption requires the same key as
                                 // encrypted with
-                                Func::SymEnc if self.can_derive(unifier, key) => {
+                                Func::SymEnc
+                                    if self.can_derive(unifier, key, WithUnification::No) =>
+                                {
                                     new_terms.push(inner);
                                     Move::Move
                                 }
@@ -219,7 +235,10 @@ mod tests {
 
             knowledge.augment_knowledge(&mut unifier);
             for (expected, goal) in goals {
-                assert_eq!(expected, knowledge.can_derive(&mut unifier, goal));
+                assert_eq!(
+                    expected,
+                    knowledge.can_derive(&mut unifier, goal, WithUnification::No)
+                );
             }
         };
     }

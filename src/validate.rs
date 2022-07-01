@@ -4,7 +4,7 @@ use miette::SourceSpan;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::Knowledge,
+    dolev_yao::{Knowledge, WithUnification},
     lower::LoweringContext,
     protocol::{Direction, Protocol, SessionId},
     sessions::Session,
@@ -127,7 +127,10 @@ pub fn validate(src: &str, unifier: &mut Unifier, session: &Session) -> Vec<Vali
                     }
 
                     for (term_i, term) in sender_term.terms.iter().enumerate() {
-                        if !sender_state.knowledge.can_derive(unifier, *term) {
+                        if !sender_state
+                            .knowledge
+                            .can_derive(unifier, *term, WithUnification::Yes)
+                        {
                             errors.push(ValidateError::TermIsNotConstructable {
                                 src: src.to_string(),
                                 err_span: sender_term.ast_node.message.terms[term_i]
