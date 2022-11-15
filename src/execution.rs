@@ -4,10 +4,10 @@ use itertools::Itertools;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::{Knowledge, WithUnification},
+    dolev_yao::{Knowledge, Obligation, WithUnification},
     protocol::{Direction, SessionId},
     sessions::Session,
-    terms::{TermId, Unifier},
+    terms::{Term, TermId, Unifier},
 };
 
 type Rc<T> = std::sync::Arc<T>;
@@ -125,9 +125,23 @@ impl Intruder {
             .iter()
             .map(|r| r.as_ref())
             .all(|(k, terms)| {
-                terms
-                    .iter()
-                    .all(|&term| k.can_derive(unifier, term, WithUnification::Yes))
+                terms.iter().all(|&term| match unifier.probe_value(term) {
+                    Term::Variable(_, _) => true,
+                    _ => {
+                        eprintln!("how can we derive?? {:?}", unifier.resolve_full(term));
+                        let mut options = k.can_derives(unifier, term).collect_vec();
+                        for o in &mut options {
+                            println!("=> {:?}", o.resolve_full(term));
+                        }
+
+                        if let Some(o) = options.pop() {
+                            *unifier = o;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                })
             })
     }
 
@@ -298,6 +312,20 @@ impl Execution {
                                                 intruder.knowledge.clone(),
                                                 transaction.terms.clone(),
                                             )));
+
+                                            for &o in &transaction.obligations {
+                                                match o {
+                                                    Obligation::ShouldUnify { opaque, actual } => {
+                                                        if new
+                                                            .unifier
+                                                            .unify(opaque, actual)
+                                                            .is_err()
+                                                        {
+                                                            return vec![];
+                                                        }
+                                                    }
+                                                }
+                                            }
 
                                             new.states[session_i].agents[agent_i]
                                                 .current_execution += 1;

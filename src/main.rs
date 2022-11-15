@@ -12,7 +12,7 @@ enum Args {
     /// Prints the constraints for session of the given protocol
     Sessions {
         /// Number of sessions
-        #[clap(short, long, value_parser)]
+        #[clap(short, long, value_parser, default_value_t = 1)]
         num_sessions: u32,
 
         /// The path to the protocol src
@@ -22,7 +22,7 @@ enum Args {
     /// Attempts to find an attack on the given protocol
     Verify {
         /// Number of sessions
-        #[clap(short, long, value_parser)]
+        #[clap(short, long, value_parser, default_value_t = 1)]
         num_sessions: u32,
 
         /// Number of iterations
@@ -36,7 +36,7 @@ enum Args {
     /// Step through the protocol interactively
     Interactive {
         /// Number of sessions
-        #[clap(short, long, value_parser)]
+        #[clap(short, long, value_parser, default_value_t = 1)]
         num_sessions: u32,
 
         /// The path to the protocol src

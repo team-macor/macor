@@ -3,7 +3,7 @@ use macor_parse::ast::Ident;
 use smol_str::SmolStr;
 
 use crate::{
-    dolev_yao::Knowledge,
+    dolev_yao::{Knowledge, Obligation, WithUnification},
     lower::{ForWho, LoweringContext},
     protocol::{self, Direction, Protocol, ProtocolAgent, SessionId},
     terms::{TermId, Unifier},
@@ -17,6 +17,7 @@ pub struct Transaction {
     pub post_knowledge: Knowledge,
     pub direction: Direction,
     pub terms: Vec<TermId>,
+    pub obligations: Vec<Obligation<TermId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,13 +126,17 @@ impl Session {
             );
             for t in &role.strand {
                 println!(
-                    ">> {:?}->{:?}: {:?}",
+                    ">> {:?}->{:?}: {:?}\t{:?}",
                     unifier.resolve_full(t.sender),
                     unifier.resolve_full(t.receiver),
                     t.terms
                         .iter()
                         .map(|&term| unifier.resolve_full(term))
-                        .collect_vec()
+                        .collect_vec(),
+                    t.obligations
+                        .iter()
+                        .map(|o| o.map(|t| unifier.resolve_full(t)))
+                        .format(", ")
                 );
             }
         }
@@ -174,6 +179,7 @@ impl Role {
         initial_knowledge.augment_knowledge(ctx.unifier);
 
         let mut current_knowledge = initial_knowledge.clone();
+        let mut outstanding_obligations = vec![];
 
         let strand = agent
             .messages
@@ -182,10 +188,28 @@ impl Role {
                 let terms = pattern
                     .message
                     .iter()
-                    .map(|t| ctx.lower_term(&for_who, &protocol.initiations, t.clone()))
+                    .map(|t| {
+                        let id = ctx.lower_term(&for_who, &protocol.initiations, t.clone());
+                        current_knowledge.to_opaque(ctx.unifier, &mut outstanding_obligations, id)
+                    })
                     .collect_vec();
                 current_knowledge.extend(terms.iter().copied());
                 current_knowledge.augment_knowledge(ctx.unifier);
+
+                let mut obligations = vec![];
+
+                outstanding_obligations.retain(|&o| match o {
+                    Obligation::ShouldUnify { opaque: _, actual } => {
+                        if current_knowledge.can_derive(ctx.unifier, actual, WithUnification::No) {
+                            obligations.push(o);
+
+                            false
+                        } else {
+                            true
+                        }
+                    }
+                });
+
                 Transaction {
                     ast_node: pattern.clone(),
                     sender: ctx.get_agent(&for_who, &pattern.from),
@@ -193,6 +217,7 @@ impl Role {
                     direction: pattern.direction,
                     post_knowledge: current_knowledge.clone(),
                     terms,
+                    obligations,
                 }
             })
             .collect_vec();

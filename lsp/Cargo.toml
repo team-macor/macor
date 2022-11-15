@@ -9,6 +9,6 @@ edition = "2021"
 tokio = { version = "1.19", features = ["full"] }
 tower-lsp = "0.17.0"
 macor = { path = ".." }
-macor-fmt = { path="../fmt" }
+macor-fmt = { path = "../fmt" }
 dashmap = "5.3.4"
 miette = "4.7.1"

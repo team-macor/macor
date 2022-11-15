@@ -128,6 +128,14 @@ impl<M> Term<M> {
     pub fn is_inv(&self) -> bool {
         matches!(self, Composition(Func::Inv, _))
     }
+
+    /// Returns `true` if the term is [`Variable`].
+    ///
+    /// [`Variable`]: Term::Variable
+    #[must_use]
+    pub fn is_variable(&self) -> bool {
+        matches!(self, Self::Variable(..))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -146,7 +154,15 @@ impl<M: std::fmt::Debug> std::fmt::Debug for Term<M> {
             }
             Self::Variable(hint, Kind::Other) => {
                 if let Some(k) = hint.as_deref() {
-                    write!(f, "{}", Paint::cyan(k))
+                    if k.starts_with("<|") {
+                        write!(
+                            f,
+                            "{}",
+                            k.chars().map(|c| Paint::cyan(c).strikethrough()).format("")
+                        )
+                    } else {
+                        write!(f, "{}", Paint::cyan(k))
+                    }
                 } else {
                     write!(f, "{}", Paint::cyan("Other"))
                 }
@@ -227,6 +243,7 @@ impl UnifyValue for Term<TermId> {
                     return Err(UnificationError::DidNotUnify);
                 }
             }
+            (Variable(_, Kind::Agent), Intruder) | (Intruder, Variable(_, Kind::Agent)) => Intruder,
             (Variable(_, Kind::Other), Composition(func, args))
             | (Composition(func, args), Variable(_, Kind::Other)) => Composition(func, args),
             (Variable(_, Kind::Other), Tuple(ts)) | (Tuple(ts), Variable(_, Kind::Other)) => {
@@ -341,6 +358,10 @@ impl Unifier {
                     self.table.unify_var_var(l, r)?;
                     l
                 }
+                (Intruder, Variable(_, Kind::Agent)) | (Variable(_, Kind::Agent), Intruder) => {
+                    self.table.unify_var_var(l, r)?;
+                    l
+                }
                 (Constant(x, _, xk), Constant(y, _, yk)) => {
                     if x == y && xk == yk {
                         l
@@ -403,6 +424,7 @@ impl Unifier {
                         .zip_eq(ys.iter())
                         .all(|(&x, &y)| self.are_equal(x, y))
             }
+            (Variable(_, _), Variable(_, _)) => false,
             (x, y) => x == y,
         }
     }
@@ -426,6 +448,10 @@ impl Unifier {
     //     false
     // }
 
+    pub fn find(&mut self, id: TermId) -> TermId {
+        self.table.find(id)
+    }
+
     pub fn probe_value(&mut self, id: TermId) -> Term<TermId> {
         self.table.inlined_probe_value(id)
     }
@@ -446,6 +472,13 @@ mod tests {
         }
         fn variable(&mut self) -> TermId {
             self.table.new_key(Variable(Hint::none(), Kind::Other))
+        }
+        fn constant_agent(&mut self, i: u32) -> TermId {
+            self.table
+                .new_key(Constant(ConstantId(i), Hint::none(), Kind::Agent))
+        }
+        fn variable_agent(&mut self) -> TermId {
+            self.table.new_key(Variable(Hint::none(), Kind::Agent))
         }
     }
 
@@ -592,6 +625,21 @@ mod tests {
             unifier.resolve_full(a),
             FullTerm(Constant(ConstantId(2), Hint::none(), Kind::Other))
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn intruder_agent_in_composition() -> Result<(), UnificationError> {
+        let mut unifier = Unifier::default();
+
+        let i = unifier.intruder();
+        let a = unifier.variable_agent();
+        let sk = unifier.constant(0);
+        let sk_a = unifier.register_new_composition(Func::User(sk), vec![a]);
+        let sk_i = unifier.register_new_composition(Func::User(sk), vec![i]);
+
+        unifier.unify(sk_a, sk_i)?;
 
         Ok(())
     }

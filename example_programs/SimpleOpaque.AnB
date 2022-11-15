@@ -10,7 +10,7 @@ Knowledge:
 
 Actions:
   A->B: h(NA)
-  B->A: h
+  B->A: h(NA)
   A->B: NA
 
 Goals:

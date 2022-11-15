@@ -1,5 +1,23 @@
+use itertools::Itertools;
+
 use crate::protocol::Func;
-use crate::terms::{FullTerm, Term, TermId, Unifier};
+use crate::terms::{FullTerm, Kind, Term, TermId, Unifier};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Obligation<M> {
+    ShouldUnify { opaque: M, actual: M },
+}
+
+impl<M> Obligation<M> {
+    pub fn map<T>(self, mut f: impl FnMut(M) -> T) -> Obligation<T> {
+        match self {
+            Obligation::ShouldUnify { opaque, actual } => Obligation::ShouldUnify {
+                opaque: f(opaque),
+                actual: f(actual),
+            },
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum WithUnification {
@@ -45,6 +63,76 @@ impl Knowledge {
             _ => false,
         })
     }
+    pub fn can_derives<'a>(
+        &'a self,
+        unifier: &'a Unifier,
+        goal: TermId,
+    ) -> impl Iterator<Item = Unifier> + 'a {
+        return std::iter::empty()
+            .chain(
+                // If we allow unification, just let the variables stay. This might
+                // be an abuse for `with_unification`, but in situations where
+                // unifications is allowed, it is also best to postpone it, see
+                // (lazy-intruder)
+                {
+                    let mut unifier = unifier.clone();
+                    unifier.probe_value(goal).is_variable().then(|| unifier)
+                },
+            )
+            .chain(
+                // Axiom
+                {
+                    let mut unifier = unifier.clone();
+                    self.iter()
+                        .any(|t| unifier.are_equal(t, goal))
+                        .then(|| unifier)
+                },
+            )
+            .chain({
+                self.iter().filter_map(move |t| {
+                    let mut unifier = unifier.clone();
+                    if unifier.unify(t, goal).is_ok() {
+                        Some(unifier)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .chain((move || {
+                // Compose
+                let mut unifier = unifier.clone();
+                match unifier.probe_value(goal) {
+                    Term::Composition(func, args) => {
+                        match func {
+                            Func::Inv => return vec![],
+                            Func::User(c) => {
+                                if !self.iter().any(|f| unifier.are_equal(f, c)) {
+                                    return vec![];
+                                }
+                            }
+                            _ => {}
+                        }
+                        args.iter()
+                            .flat_map(|&arg| self.can_derives(&unifier, arg))
+                            .collect_vec()
+                    }
+                    Term::Tuple(ts) => ts
+                        .iter()
+                        .flat_map(|&t| self.can_derives(&unifier, t))
+                        .collect_vec(),
+                    _ => vec![],
+                }
+            })())
+            .fold(Vec::<Unifier>::new(), |mut seen, mut o| {
+                if seen.iter_mut().any(|u| u.find(goal) == o.find(goal)) {
+                    seen
+                } else {
+                    seen.push(o);
+                    seen
+                }
+            })
+            .into_iter();
+    }
     pub fn can_derive(
         &self,
         unifier: &mut Unifier,
@@ -63,15 +151,49 @@ impl Knowledge {
                 return false;
             }
 
+            // If we allow unification, just let the variables stay. This might
+            // be an abuse for `with_unification`, but in situations where
+            // unifications is allowed, it is also best to postpone it, see
+            // (lazy-intruder)
+            if with_unification == WithUnification::Yes && unifier.probe_value(term).is_variable() {
+                continue;
+            }
+
             // Axiom
             if self.iter().any(|t| unifier.are_equal(t, term)) {
                 continue;
             }
+
+            if with_unification == WithUnification::Yes {
+                self.iter().for_each(|t| {
+                    println!(
+                        "{:?} {:?} => {:?}",
+                        unifier.resolve_full(t),
+                        unifier.resolve_full(term),
+                        unifier.unify(t, term).is_ok()
+                    );
+                });
+            }
+
             // TODO: This step can branch depending on which term from the
             // knowledge was unified with. Consider propagating the branching up
             // throughout the search.
+            let options: std::collections::HashSet<_> = self.iter().collect();
+
+            options.iter().for_each(|&t| {
+                let mut new_unifier = unifier.clone();
+                if new_unifier.unify(t, term).is_ok() {
+                    println!(
+                        "{:?} {:?} => {:?}",
+                        unifier.resolve_full(t),
+                        unifier.resolve_full(term),
+                        unifier.unify(t, term).is_ok()
+                    );
+                }
+            });
+
             if with_unification == WithUnification::Yes
-                && self.iter().any(|t| unifier.unify(t, term).is_ok())
+                && options.into_iter().any(|t| unifier.unify(t, term).is_ok())
             {
                 continue;
             }
@@ -188,6 +310,97 @@ impl Knowledge {
             self.terms.append(&mut new_terms);
 
             assert_eq!(new_terms.len(), 0);
+        }
+    }
+    pub fn to_opaque(
+        &self,
+        unifier: &mut Unifier,
+        outstanding_obligations: &mut Vec<Obligation<TermId>>,
+        term: TermId,
+    ) -> TermId {
+        if self.can_derive(unifier, term, WithUnification::No) {
+            return term;
+        }
+
+        macro_rules! opaque {
+            ($term:expr) => {{
+                let term = $term;
+
+                let new = unifier.resolve_full(term);
+                yansi::Paint::disable();
+                let opaque = unifier.register_new_variable(
+                    Some(format!(
+                        "<|{:?}@{:?}|>",
+                        new,
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos()
+                            % 100003
+                    )),
+                    Kind::Other,
+                );
+                yansi::Paint::enable();
+
+                outstanding_obligations.push(Obligation::ShouldUnify {
+                    opaque,
+                    actual: term,
+                });
+
+                opaque
+            }};
+        }
+
+        if let Some(o) = outstanding_obligations.iter().copied().find(|&o| match o {
+            Obligation::ShouldUnify { opaque, actual } => unifier.are_equal(actual, term),
+        }) {
+            match o {
+                Obligation::ShouldUnify { opaque, actual } => return opaque,
+            }
+        }
+
+        match unifier.probe_value(term) {
+            Term::Intruder => term,
+            Term::Variable(_, _) => term,
+            Term::Constant(_, _, _) => term,
+            Term::Composition(Func::AsymEnc, _) => term,
+            Term::Composition(Func::Exp, _) => term,
+            Term::Composition(Func::Inv, _) => term,
+            Term::Composition(Func::SymEnc, args) => {
+                let (inner, key) = (args[0], args[1]);
+
+                if self.can_derive(unifier, key, WithUnification::No) {
+                    let opaque_inner = self.to_opaque(unifier, outstanding_obligations, inner);
+                    unifier.register_new_composition(Func::SymEnc, vec![opaque_inner, key])
+                } else {
+                    opaque!(term)
+                }
+            }
+            Term::Composition(Func::User(f), _) => {
+                if let Some(o) = outstanding_obligations.iter().copied().find(|&o| match o {
+                    Obligation::ShouldUnify { opaque, actual } => unifier.are_equal(actual, term),
+                }) {
+                    match o {
+                        Obligation::ShouldUnify { opaque, actual } => return opaque,
+                    }
+                }
+
+                let opaque = opaque!(term);
+
+                opaque
+            }
+            Term::Tuple(ts) => {
+                let opaque_ts = ts
+                    .iter()
+                    .map(|&t| self.to_opaque(unifier, outstanding_obligations, t))
+                    .collect_vec();
+
+                if ts.iter().zip(&opaque_ts).any(|(a, b)| a != b) {
+                    unifier.register_new_tuple(opaque_ts)
+                } else {
+                    term
+                }
+            }
         }
     }
 }
