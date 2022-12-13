@@ -1,4 +1,4 @@
-use std::hash::Hash;
+use std::{collections::HashMap, hash::Hash};
 
 use indexmap::{indexset, IndexMap, IndexSet};
 use itertools::Itertools;
@@ -11,6 +11,11 @@ use crate::typing::{Stage, Type, TypedStage, TypingContext, TypingError, Untyped
 pub struct AgentName(pub Ident<SmolStr>);
 
 impl std::fmt::Debug for AgentName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl std::fmt::Display for AgentName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
@@ -190,6 +195,7 @@ impl Direction {
 pub struct MessagePattern {
     pub from: AgentName,
     pub to: AgentName,
+    pub nr: usize,
     pub direction: Direction,
     pub message: Message,
     pub initiates: IndexSet<Variable>,
@@ -217,6 +223,7 @@ pub enum Goal<A> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Protocol {
+    pub functions: HashMap<Ident<SmolStr>, (Vec<Type>, Option<Type>)>,
     pub agents: Vec<ProtocolAgent>,
     pub initiations: IndexMap<Variable, AgentName>,
     pub goals: Vec<Goal<AgentName>>,
@@ -248,7 +255,8 @@ impl Protocol {
             initial_knowledge: k.to_typed(ctx),
             messages: actions
                 .iter()
-                .filter_map(|a| {
+                .enumerate()
+                .filter_map(|(nr, a)| {
                     let direction = if &a.from == agent {
                         Direction::Outgoing
                     } else if &a.to == agent {
@@ -260,6 +268,7 @@ impl Protocol {
                     Some(MessagePattern {
                         from: AgentName(a.from.convert()),
                         to: AgentName(a.to.convert()),
+                        nr,
                         direction,
                         message: a.terms.iter().cloned().collect(),
                         initiates: a.initiates.clone(),
@@ -287,6 +296,7 @@ impl Protocol {
                 })
                 .collect(),
             errors: Vec::new(),
+            functions: HashMap::new(),
             src,
         };
 
@@ -367,12 +377,28 @@ impl Protocol {
 
         if ctx.errors.is_empty() {
             Ok(Protocol {
+                functions: ctx.functions,
                 agents,
                 initiations,
                 goals,
             })
         } else {
             Err(ctx.errors)
+        }
+    }
+}
+impl ProtocolAgent {
+    pub fn is_initiator(&self) -> bool {
+        self.messages
+            .first()
+            .map(|m| m.direction == Direction::Outgoing)
+            == Some(true)
+    }
+    pub fn initiated_by_message(&self) -> Option<&MessagePattern> {
+        if self.is_initiator() {
+            None
+        } else {
+            self.messages.first()
         }
     }
 }
@@ -421,6 +447,24 @@ impl Term {
                     .map(|term| term.replace_agent_with_intruder(current_agent))
                     .collect(),
             ),
+        }
+    }
+
+    pub fn ty(&self) -> Type {
+        match self {
+            Term::Variable(v) => match v {
+                Variable::Agent(_) => Type::Agent,
+                Variable::SymmetricKey(_) => Type::SymmetricKey,
+                Variable::Number(_) => Type::Number,
+            },
+            Term::Constant(c) => match c {
+                Constant::Intruder => Type::Agent,
+                Constant::Agent(_) => Type::Agent,
+                Constant::Function(_) => todo!(),
+                Constant::Nonce(_) => todo!(),
+            },
+            Term::Composition { func, args } => todo!(),
+            Term::Tuple(_) => todo!(),
         }
     }
 

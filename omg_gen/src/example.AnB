@@ -1,0 +1,28 @@
+Protocol: KeyEx
+# 6th version: the correction of NSSK suggested by Denning-Sacco
+# and a fix to prevent the new attack in case A=B
+# SAFE!
+
+Types:
+  Agent A,B,s;
+  Number NA,NB;
+  Symmetric_key KAB;
+  Function sk
+
+Knowledge:
+  A: A,B,s,sk(A,s);
+  B: A,B,s,sk(B,s);
+  s: A,B,s,sk(A,s),sk(B,s)
+
+Actions:
+
+# B creates NB
+B->A: A,B,NB
+A->s: A,B,NA,NB
+# s creates key KAB
+s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s |}sk(B,s)
+A->B: {| KAB,A,NB,s |}sk(B,s)
+
+Goals:
+
+KAB secret between A,B,s

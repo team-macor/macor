@@ -1,0 +1,21 @@
+Protocol: KeyEx
+
+Types:
+  Agent A,B,s;
+  Symmetric_key KAB;
+  Function sk,f
+
+Knowledge:
+  A: A,B,s,sk(A,s),f;
+  B: A,B,s,sk(B,s),f;
+  s: A,B,s,sk(A,s),sk(B,s),f
+
+Actions:
+  A->s: A,{|B, A|}sk(A,s)
+  s->B: f(KAB), {A}sk(B,s)
+  B->A: A,f(KAB)
+
+Goals:
+  A authenticates s on KAB,B
+  B authenticates s on KAB,A
+  KAB secret between A,B,s

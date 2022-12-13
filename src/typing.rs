@@ -1,7 +1,13 @@
-use std::{collections::HashMap, hash::Hash, marker::PhantomData};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    hash::Hash,
+    marker::PhantomData,
+};
 
+use itertools::Itertools;
 use macor_parse::ast::Ident;
 use miette::SourceSpan;
+use smol_str::SmolStr;
 
 use crate::protocol::{AgentName, Constant, Func, Term, Variable};
 
@@ -94,6 +100,7 @@ pub struct TypingContext {
     pub src: String,
     pub types: HashMap<String, Type>,
     pub errors: Vec<TypingError>,
+    pub functions: HashMap<Ident<SmolStr>, (Vec<Type>, Option<Type>)>,
 }
 impl TypingContext {
     pub fn lookup(&self, name: &str) -> Option<Type> {
@@ -201,7 +208,29 @@ impl Term<UntypedStage<'_>> {
                 Func::User(name) => {
                     if let Some(ty) = ctx.lookup(name.as_str()) {
                         match ty {
-                            Type::Function => {}
+                            Type::Function => {
+                                // todo!("{name:?} as args: {args:?}");
+                                match ctx.functions.get(&name) {
+                                    Some(t) => {
+                                        let (prev_args, _) = t.clone();
+                                        if args.len() != prev_args.len() {
+                                            todo!("args are of different length")
+                                        }
+                                        for (a, b) in args.iter().zip_eq(prev_args) {
+                                            let ty_of_a = a.to_typed(ctx);
+
+                                            if ty_of_a.ty() != b {
+                                                todo!("args of different type")
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        let args =
+                                            args.iter().map(|arg| arg.to_typed(ctx).ty()).collect();
+                                        ctx.functions.insert(name.clone(), (args, None));
+                                    }
+                                }
+                            }
                             _ => {
                                 ctx.errors.push(TypingError::NotAFunction {
                                     src: ctx.src(),

@@ -8,16 +8,14 @@ Types:
 Knowledge:
   A: A,B,s,sk(A,s);
   B: A,B,s,sk(B,s);
-  s: A,B,s,sk(A,s),sk(B,s)
+  s: A,s,sk(A,s),sk(B,s)
 
 Actions:
-
-A->s: A,B
-s->A: KAB
-A->B: A,KAB
+  A->s: A,B
+  s->B: KAB
+  B->A: A,KAB
 
 Goals:
-
-A authenticates s on KAB,B
-B authenticates s on KAB,A
-KAB secret between A,B,s
+  A authenticates s on KAB,B
+  B authenticates s on KAB,A
+  KAB secret between A,B,s
