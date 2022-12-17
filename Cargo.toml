@@ -30,7 +30,16 @@ yansi = "0.5.1"
 debug = true
 
 [workspace]
-members = ["lsp", "parse", "fmt", "omg", "omg_gen", "omg_example"]
+members = [
+    "lsp",
+    "parse",
+    "fmt",
+    "omg",
+    "omg_gen",
+    "omg_example",
+    "omg_crypt",
+    "omg_chat",
+]
 
 [dev-dependencies]
 criterion = "0.3"

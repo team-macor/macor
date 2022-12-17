@@ -12,3 +12,4 @@ itertools = "0.10.5"
 omg = { path = "../omg" }
 macor = { path = "../" }
 macor-parse = { path = "../parse" }
+educe = "0.4.20"

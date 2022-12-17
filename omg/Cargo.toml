@@ -7,4 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
+educe = "0.4.20"
+postcard = { version = "1.0.2", features = ["use-std", "alloc", "experimental-derive"], default-features = false }
 serde = { version = "1.0.150", features = ["derive"] }
+thiserror = "1.0.37"
+tracing = "0.1.37"

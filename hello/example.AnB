@@ -1,0 +1,60 @@
+A: A,B,s,sk(A,s);
+
+-4: A
+-3: B
+-2: s
+-1: sk(A,s)
+
+B->A: A,B,NB
+
+0: A        recieved from 0     trusted
+1: B        recieved from 1     trusted
+2: NB       recieved from 2     trusted
+4: sk(A,s)  fetch initial knowledge for sk(A,s)
+
+set 0 to be msg.0
+set 1 to be msg.1
+set 2 to be msg.2
+
+A->s: A,B,NA,NB
+
+3: A        construct from 0
+4: B        construct from 1
+5: NA       initiate
+6: NB       construct from 2
+
+initiate 5 (NA)
+
+send (sigma[-4],sigma[-3],sigma[5],sigma[2])
+
+s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s,Shhh |}sk(B,s)
+
+7: {| KAB,B,NA |}sk(A,s)            not expanded        deps on -1              trusted
+8: (KAB,B,NA)                       not expanded        decrypt 7 with -1
+9: KAB                              trust               tuple index 0 in 8
+10: B                               compare with -3     tuple index 1 in 8
+11: NA                              compare with 5      tuple index 2 in 8
+12: {| KAB,A,NB,s,Shhh |}sk(B,s)    not expanded        deps on ?               trusted
+
+set 7 to be msg.0
+decrypt 7 with -1 into 8
+...
+
+A->B: {| KAB,A,NB,s,Shhh |}sk(B,s)
+
+12.5: ...  construct from 12
+
+B->A: sk(B,s)
+
+13: sk(B,s)                 recieved from 0
+14: (KAB,A,NB,s,Shhh)       decrypt 12 with 13
+15: KAB                     compare with 9
+16: A                       compare with -4
+17: NB                      compare with 2
+18: s                       compare with -2
+18: Shhh                    trust
+
+
+Goals:
+
+KAB secret between A,B,s

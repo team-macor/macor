@@ -191,14 +191,38 @@ impl Direction {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub struct MessageNr(usize);
+
+impl std::fmt::Debug for MessageNr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "M{}", self.0)
+    }
+}
+impl std::fmt::Display for MessageNr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "M{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessagePattern {
     pub from: AgentName,
     pub to: AgentName,
-    pub nr: usize,
+    pub nr: MessageNr,
     pub direction: Direction,
     pub message: Message,
+    pub is_first_for_agent: bool,
     pub initiates: IndexSet<Variable>,
+}
+
+impl MessagePattern {
+    pub fn is_outgoing(&self) -> bool {
+        self.direction == Direction::Outgoing
+    }
+    pub fn is_ingoing(&self) -> bool {
+        self.direction == Direction::Ingoing
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -257,22 +281,23 @@ impl Protocol {
                 .iter()
                 .enumerate()
                 .filter_map(|(nr, a)| {
-                    let direction = if &a.from == agent {
-                        Direction::Outgoing
+                    if &a.from == agent {
+                        Some((Direction::Outgoing, nr, a))
                     } else if &a.to == agent {
-                        Direction::Ingoing
+                        Some((Direction::Ingoing, nr, a))
                     } else {
-                        return None;
-                    };
-
-                    Some(MessagePattern {
-                        from: AgentName(a.from.convert()),
-                        to: AgentName(a.to.convert()),
-                        nr,
-                        direction,
-                        message: a.terms.iter().cloned().collect(),
-                        initiates: a.initiates.clone(),
-                    })
+                        None
+                    }
+                })
+                .enumerate()
+                .map(|(index, (direction, nr, a))| MessagePattern {
+                    from: AgentName(a.from.convert()),
+                    to: AgentName(a.to.convert()),
+                    nr: MessageNr(nr),
+                    is_first_for_agent: index == 0,
+                    direction,
+                    message: a.terms.iter().cloned().collect(),
+                    initiates: a.initiates.clone(),
                 })
                 .collect(),
         }
@@ -317,6 +342,16 @@ impl Protocol {
 
         let mut initiations = IndexMap::default();
         let mut seen = IndexSet::<Variable>::default();
+
+        for (_, initial_knowledge) in document.knowledge.agents.iter() {
+            for t in initial_knowledge {
+                seen.extend(
+                    Term::<UntypedStage>::from(t.clone())
+                        .to_typed(&mut ctx)
+                        .extract_variables(),
+                );
+            }
+        }
 
         for action in &mut actions {
             let in_this: IndexSet<Variable> = action

@@ -5,7 +5,7 @@ Protocol: KeyEx
 
 Types:
   Agent A,B,s;
-  Number NA,NB;
+  Number NA,NB,Shhh;
   Symmetric_key KAB;
   Function sk
 
@@ -18,10 +18,12 @@ Actions:
 
 # B creates NB
 B->A: A,B,NB
+# A creates NA
 A->s: A,B,NA,NB
 # s creates key KAB
-s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s |}sk(B,s)
-A->B: {| KAB,A,NB,s |}sk(B,s)
+s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s,Shhh |}sk(B,s)
+A->B: {| KAB,A,NB,s,Shhh |}sk(B,s)
+B->A: sk(B,s)
 
 Goals:
 
