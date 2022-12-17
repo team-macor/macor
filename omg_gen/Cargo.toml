@@ -3,8 +3,6 @@ name = "omg_gen"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 anyhow = "1.0.66"
 clap = { version = "4.0.29", features = ["derive"] }
@@ -13,3 +11,5 @@ omg = { path = "../omg" }
 macor = { path = "../" }
 macor-parse = { path = "../parse" }
 educe = "0.4.20"
+quote = "1.0.21"
+syn = "1.0.105"

@@ -5,6 +5,7 @@ use macor::protocol::{
     AgentName, Direction, Func, Message, MessageNr, MessagePattern, Protocol, ProtocolAgent, Term,
 };
 use macor_parse::ast::{Document, Ident};
+use quote::{ToTokens, TokenStreamExt, __private::TokenStream};
 
 use crate::output::term_to_rust_ty;
 
@@ -224,7 +225,7 @@ impl Knowledge {
                         self.retrieve(
                             TermOrigin::Decompose {
                                 from: i.id,
-                                index,
+                                index: RegisterIndex(index),
                                 after_msg: msg_nr,
                             },
                             t.clone(),
@@ -353,7 +354,7 @@ enum TermOrigin {
     },
     Received {
         msg_nr: MessageNr,
-        index: usize,
+        index: RegisterIndex,
     },
     DecryptSymmetric {
         term: InfoId,
@@ -367,7 +368,7 @@ enum TermOrigin {
     },
     Decompose {
         from: InfoId,
-        index: usize,
+        index: RegisterIndex,
         after_msg: MessageNr,
     },
     CreateTuple {
@@ -387,10 +388,13 @@ pub enum GenerateTy {
     SymKey,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RegisterIndex(pub usize);
+
 #[derive(Debug, Clone)]
 pub enum Instruction {
     Retrieve {
-        index: usize,
+        index: RegisterIndex,
         id: InfoId,
     },
     Generate(GenerateTy, InfoId),
@@ -405,7 +409,7 @@ pub enum Instruction {
     },
     Extract {
         from: InfoId,
-        index: usize,
+        index: RegisterIndex,
         into: InfoId,
     },
     CreateTuple {
@@ -423,7 +427,7 @@ pub enum Instruction {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MessageId {
     Initialize,
     Nr(MessageNr),
@@ -524,7 +528,7 @@ pub struct ProtocolModel {
     pub agents: Vec<AgentModel>,
 }
 
-pub fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel> {
+fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel> {
     let protocol =
         Protocol::new(src.to_string(), doc.clone()).map_err(|x| x.first().cloned().unwrap())?;
 
@@ -558,7 +562,7 @@ pub fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolM
                         knowledge.retrieve(
                             TermOrigin::Received {
                                 msg_nr: msg.nr,
-                                index,
+                                index: RegisterIndex(index),
                             },
                             t.clone(),
                         );
@@ -760,7 +764,10 @@ pub fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolM
                                 instructions: knowledge
                                     .initial
                                     .iter()
-                                    .map(|&(index, id)| Instruction::Retrieve { index, id })
+                                    .map(|&(index, id)| Instruction::Retrieve {
+                                        index: RegisterIndex(index),
+                                        id,
+                                    })
                                     .chain(knowledge.generate_instructions(msg, msg.nr))
                                     .collect(),
                                 response: Response {
@@ -929,7 +936,7 @@ pub fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolM
         agents,
     })
 }
-pub fn generate(src: &str, doc: Document<&str>) -> anyhow::Result<String> {
+pub fn generate(src: &str, doc: Document<&str>) -> anyhow::Result<TokenStream> {
     let model = prepate_model(src, doc)?;
-    model.rust()
+    Ok(model.rust())
 }
