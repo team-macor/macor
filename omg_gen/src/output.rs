@@ -1,5 +1,8 @@
 use itertools::Itertools;
-use macor::protocol::{AgentName, Func, MessageNr, Term};
+use macor::{
+    protocol::{AgentName, Func, MessageNr, Term},
+    typing::Type,
+};
 use quote::{__private::TokenStream, format_ident, quote, ToTokens, TokenStreamExt};
 
 use crate::v2::{
@@ -19,7 +22,7 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
         Term::Constant(c) => match c {
             macor::protocol::Constant::Intruder => unreachable!(),
             macor::protocol::Constant::Agent(_) => quote!(Agent<<T as Base>::Agent>),
-            macor::protocol::Constant::Function(_) => todo!(),
+            macor::protocol::Constant::Function(f) => todo!(),
             macor::protocol::Constant::Nonce(_) => todo!(),
         },
         Term::Composition { func, args } => match func {
@@ -30,9 +33,26 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
                     SymEnc<<T as Base>::SymEnc, #body, #key>
                 )
             }
-            Func::AsymEnc => todo!(),
+            Func::AsymEnc => {
+                let body = term_to_rust_ty(&args[0]);
+                let key = term_to_rust_ty(&args[1]);
+                quote!(
+                    AsymEnc<<T as Base>::AsymEnc, #body, #key>
+                )
+            }
             Func::Exp => todo!(),
-            Func::Inv => todo!(),
+            Func::Inv => {
+                let args = args.iter().map(term_to_rust_ty);
+                quote!(
+                    Inv<<T as Base>::AsymmetricKeyInv, (#(#args),*)>
+                )
+            }
+            Func::AsymKey(name) => {
+                let args = args.iter().map(term_to_rust_ty);
+                quote!(
+                    AsymmetricKey<<T as Base>::AsymmetricKey, (#(#args),*)>
+                )
+            }
             Func::User(name) => {
                 let name = format_ident!("User_{name}");
                 let args = args.iter().map(term_to_rust_ty);
@@ -43,8 +63,18 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
         },
         Term::Tuple(ts) => {
             let ts = ts.iter().map(term_to_rust_ty);
-            quote!(Tuple<(#(#ts),*)>)
+            quote!(Tuple<(#(#ts,)*)>)
         }
+    }
+}
+
+fn type_to_rs(ty: &Type) -> TokenStream {
+    match ty {
+        Type::Agent => quote!(<Self as Base>::Agent),
+        Type::SymmetricKey => quote!(<Self as Base>::SymmetricKey),
+        Type::AsymmetricKey => quote!(<Self as Base>::AsymmetricKey),
+        Type::Number => quote!(<Self as Base>::Number),
+        Type::Function => todo!(),
     }
 }
 
@@ -55,6 +85,32 @@ impl ProtocolModel {
             .types
             .iter()
             .map(|t| format_ident!("User_{}", t.name))
+            .collect_vec();
+        let types_fns = self
+            .instance
+            .types
+            .iter()
+            .map(|t| match &t.with_fn {
+                Some((args, ret)) => {
+                    let name = format_ident!("{}", t.name);
+                    let args = args.iter().enumerate().map(|(idx, a)| {
+                        let arg = format_ident!("arg_{idx}");
+                        let ty = type_to_rs(a);
+                        quote!(#arg: &#ty)
+                    });
+                    let ret = match ret {
+                        Some(ty) => type_to_rs(ty),
+                        None => {
+                            let ret = format_ident!("User_{}", t.name);
+                            quote!(Self::#ret)
+                        }
+                    };
+                    quote! {
+                        fn #name(&mut self, #(#args),*) -> #ret
+                    }
+                }
+                None => quote!(),
+            })
             .collect_vec();
 
         let agent_names = self
@@ -74,11 +130,17 @@ impl ProtocolModel {
                 #(
                     type #types: Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned;
                 )*
+                #(
+                    #types_fns;
+                )*
             }
 
             impl Terms for () {
                 #(
                     type #types = ();
+                )*
+                #(
+                    #types_fns {}
                 )*
             }
 
@@ -105,6 +167,7 @@ impl ProtocolModel {
             .iter()
             .map(|(_, terms)| {
                 let doc = terms.iter().map(|t| format!("{t:?}"));
+                eprintln!("{terms:?}");
                 let terms = terms.iter().map(term_to_rust_ty);
                 quote!(#(
                     #[doc = #doc]
@@ -432,7 +495,7 @@ impl AgentModel {
             token_stream.append_all(quote! {
                 pub fn listen<T: Terms, C: Channel<Message<T>, Message<T>>>(
                     base: &mut T,
-                    ports: impl Fn(ListenPort) -> std::net::SocketAddr,
+                    ports: impl Fn(ListenPort) -> C::Addr,
                     con: impl Fn(ProtocolAgent, &T::Agent) -> C::Recipient,
                     f: impl Fn(&mut T, &InitialMsg<T>) -> Result<InitialKnowledge<T>>,
                 ) -> anyhow::Result<()>
@@ -488,7 +551,7 @@ impl AgentModel {
             token_stream.append_all(quote! {
                 pub fn run<T: Terms, C: Channel<Message<T>, Message<T>>>(
                     base: &mut T,
-                    ports: impl Fn(ListenPort) -> std::net::SocketAddr,
+                    ports: impl Fn(ListenPort) -> C::Addr,
                     con: impl Fn(ProtocolAgent, &T::Agent) -> C::Recipient,
                     init: Initiate<T>,
                 ) -> anyhow::Result<()>
@@ -649,6 +712,9 @@ impl ToTokens for Instruction {
             Instruction::DecryptSymmetric { term, key, into } => {
                 quote!(knowledge.#into = Some(base.symmetric_dencrypt(&knowledge.#term.as_ref().unwrap().0, knowledge.#key.as_ref().unwrap())?);)
             }
+            Instruction::DecryptAsymmetric { term, key, into } => {
+                quote!(knowledge.#into = Some(base.asymmetric_dencrypt(&knowledge.#term.as_ref().unwrap().0, &knowledge.#key.as_ref().unwrap().0)?);)
+            }
             Instruction::Compare { trusted, new } => {
                 quote!(assert_eq!(knowledge.#trusted, knowledge.#new);)
             }
@@ -657,10 +723,13 @@ impl ToTokens for Instruction {
             }
             Instruction::CreateTuple { from, into } => {
                 let ts = from.iter().map(|i| quote!(knowledge.#i.clone().unwrap()));
-                quote!(knowledge.#into = Some(Tuple((#(#ts),*)));)
+                quote!(knowledge.#into = Some(Tuple((#(#ts,)*)));)
             }
             Instruction::SymEnc { body, key, into } => {
                 quote!(knowledge.#into = Some(SymEnc(base.symmetric_encrypt(knowledge.#body.as_ref().unwrap(), knowledge.#key.as_ref().unwrap())?, PhantomData));)
+            }
+            Instruction::AsymEnc { body, key, into } => {
+                quote!(knowledge.#into = Some(AsymEnc(base.asymmetric_encrypt(knowledge.#body.as_ref().unwrap(), &knowledge.#key.as_ref().unwrap().0)?, PhantomData));)
             }
             Instruction::ComputeInitialKnowledgeFrom {
                 number_given: _,
@@ -675,6 +744,16 @@ impl ToTokens for Instruction {
                     let (#(#into_vars),*) = compute_initial_knowledge(base, &m)?;
                     #(#update);*
                 )
+            }
+            Instruction::Evaluate { func, args, into } => {
+                let func = format_ident!("{func}");
+                let args = args
+                    .iter()
+                    .map(|i| quote!(&knowledge.#i.as_ref().unwrap().0));
+
+                quote! {
+                    knowledge.#into = Some(Func(<T as Terms>::#func(base, #( #args ),*), PhantomData));
+                }
             }
         };
 

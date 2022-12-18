@@ -22,7 +22,6 @@ pub struct Tuple<Inner>(pub Inner);
 #[serde(bound = "P: serde::Serialize + serde::de::DeserializeOwned")]
 pub struct SymEnc<P, Body, Key>(pub P, pub PhantomData<(Body, Key)>);
 #[derive(Educe, Serialize, Deserialize)]
-#[educe(Debug(bound = "P: std::fmt::Debug"))]
 #[educe(Clone(bound = "P: Clone"))]
 #[educe(PartialEq(bound = "P: PartialEq"))]
 #[educe(Eq(bound = "P: Eq"))]
@@ -30,6 +29,21 @@ pub struct SymEnc<P, Body, Key>(pub P, pub PhantomData<(Body, Key)>);
 pub struct AsymEnc<P, Body, Key>(pub P, pub PhantomData<(Body, Key)>);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymmetricKey<S>(pub S);
+
+#[derive(Educe, Serialize, Deserialize)]
+#[educe(Debug(bound = "K: std::fmt::Debug"))]
+#[educe(Clone(bound = "K: Clone"))]
+#[educe(PartialEq(bound = "K: PartialEq"))]
+#[educe(Eq(bound = "K: Eq"))]
+#[serde(bound = "K: serde::Serialize + serde::de::DeserializeOwned")]
+pub struct AsymmetricKey<K, A>(pub K, pub PhantomData<A>);
+#[derive(Educe, Serialize, Deserialize)]
+#[educe(Debug(bound = "S: std::fmt::Debug"))]
+#[educe(Clone(bound = "S: Clone"))]
+#[educe(PartialEq(bound = "S: PartialEq"))]
+#[educe(Eq(bound = "S: Eq"))]
+#[serde(bound = "S: serde::Serialize + serde::de::DeserializeOwned")]
+pub struct Inv<S, A>(pub S, pub PhantomData<A>);
 
 impl<P, Body, Key> std::fmt::Debug for SymEnc<P, Body, Key>
 where
@@ -39,11 +53,19 @@ where
         write!(f, "SymEnc(...)")
     }
 }
+impl<P, Body, Key> std::fmt::Debug for AsymEnc<P, Body, Key>
+where
+    P: std::fmt::Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AsymEnc(...)")
+    }
+}
 impl<F, A> std::fmt::Debug for Func<F, A>
 where
     F: std::fmt::Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Func(...)")
+        write!(f, "Func({:?})", self.0)
     }
 }

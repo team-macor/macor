@@ -89,6 +89,7 @@ impl<'a> LoweringContext<'a> {
                     self.unifier
                         .register_new_constant(Some(format!("{:?}", func)), Kind::Other)
                 }),
+            Func::AsymKey(c) => self.get_global_constant(c.as_str()),
             Func::User(c) => self.get_global_constant(c.as_str()),
         }
     }

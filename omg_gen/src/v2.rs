@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use itertools::Itertools;
-use macor::protocol::{
-    AgentName, Direction, Func, Message, MessageNr, MessagePattern, Protocol, ProtocolAgent, Term,
+use macor::{
+    protocol::{AgentName, Direction, Func, MessageNr, Protocol, Term},
+    typing::Type,
 };
-use macor_parse::ast::{Document, Ident};
-use quote::{ToTokens, TokenStreamExt, __private::TokenStream};
-
-use crate::output::term_to_rust_ty;
+use macor_parse::ast::Document;
+use quote::__private::TokenStream;
 
 struct Knowledge {
     initial: Vec<(usize, InfoId)>,
@@ -51,10 +50,42 @@ impl Knowledge {
                         produces: vec![body.clone()],
                     }
                 }
-                Func::AsymEnc => todo!(),
+                Func::AsymEnc => {
+                    let body = &args[0];
+                    let key = &args[1];
+
+                    let inv_key = match key {
+                        Term::Variable(_) => todo!(),
+                        Term::Constant(_) => todo!(),
+                        Term::Composition { func, args } => match func {
+                            Func::SymEnc => todo!(),
+                            Func::AsymEnc => todo!(),
+                            Func::Exp => todo!(),
+                            Func::Inv => args[0].clone(),
+                            Func::AsymKey(_) => Term::Composition {
+                                func: Func::Inv,
+                                args: vec![key.clone()],
+                            },
+                            Func::User(_) => todo!(),
+                        },
+                        Term::Tuple(_) => todo!(),
+                    };
+
+                    let deps = if let Some(deps) = self.find_construction_deps(&inv_key) {
+                        deps
+                    } else {
+                        return ExpansionResult::Failed;
+                    };
+
+                    ExpansionResult::Success {
+                        requires: deps,
+                        produces: vec![body.clone()],
+                    }
+                }
                 Func::Exp => todo!(),
                 Func::Inv => todo!(),
                 Func::User(_) => todo!(),
+                Func::AsymKey(_) => todo!(),
             },
             Term::Tuple(ts) => ExpansionResult::Success {
                 requires: vec![],
@@ -85,10 +116,36 @@ impl Knowledge {
                         t.clone(),
                     )
                 }
-                Func::AsymEnc => todo!(),
+                Func::AsymEnc => {
+                    let body = self.construct(nr, &args[0]);
+                    let key = self.construct(nr, &args[1]);
+
+                    self.retrieve(
+                        TermOrigin::AsymEnc {
+                            for_msg: nr,
+                            body,
+                            key,
+                        },
+                        t.clone(),
+                    )
+                }
                 Func::Exp => todo!(),
                 Func::Inv => todo!(),
-                Func::User(_) => todo!(),
+                Func::AsymKey(f) => {
+                    todo!()
+                }
+                Func::User(f) => {
+                    let args = args.iter().map(|arg| self.construct(nr, arg)).collect_vec();
+
+                    self.retrieve(
+                        TermOrigin::Evaluate {
+                            for_msg: nr,
+                            func: f.to_string(),
+                            args,
+                        },
+                        t.clone(),
+                    )
+                }
             },
             Term::Tuple(ts) => {
                 let from = ts.iter().map(|t| self.construct(nr, t)).collect();
@@ -116,8 +173,9 @@ impl Knowledge {
                 }
                 Func::AsymEnc => todo!(),
                 Func::Exp => todo!(),
-                Func::Inv => todo!(),
-                Func::User(f) => {
+                Func::Inv => None,
+                Func::AsymKey(_) => todo!(),
+                Func::User(_) => {
                     // TODO
                     None
                 }
@@ -149,9 +207,13 @@ impl Knowledge {
                 // NOTE: We don't validate symmetric encryptions directly,
                 // instead we decompose them, and validate their contents.
                 Func::SymEnc => None,
-                Func::AsymEnc => todo!(),
+                Func::AsymEnc => {
+                    // TODO
+                    None
+                }
                 Func::Exp => todo!(),
                 Func::Inv => todo!(),
+                Func::AsymKey(_) => todo!(),
                 Func::User(_) => None,
             },
             Term::Tuple(_) => None,
@@ -210,9 +272,28 @@ impl Knowledge {
                             );
                         }
                     },
-                    Func::AsymEnc => todo!(),
+                    Func::AsymEnc => match self.try_expand(&i.term) {
+                        ExpansionResult::Failed => {}
+                        ExpansionResult::NothingToDo => {}
+                        ExpansionResult::Success { requires, produces } => {
+                            self.info[i.id.0].expansion = Expansion::ExpandedAt {
+                                nr: msg_nr,
+                                depends_on: requires.clone(),
+                            };
+
+                            self.retrieve_more(
+                                TermOrigin::DecryptAsymmetric {
+                                    term: i.id,
+                                    key: requires[0],
+                                    after_msg: msg_nr,
+                                },
+                                produces,
+                            );
+                        }
+                    },
                     Func::Exp => todo!(),
-                    Func::Inv => todo!(),
+                    Func::Inv => {}
+                    Func::AsymKey(_) => {}
                     Func::User(_) => {}
                 },
                 Term::Tuple(ts) => {
@@ -236,7 +317,7 @@ impl Knowledge {
         }
     }
 
-    fn generate_instructions(&self, msg: &MessagePattern, nr: MessageNr) -> Vec<Instruction> {
+    fn generate_instructions(&self, nr: MessageNr) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         for i in &self.info {
@@ -275,11 +356,20 @@ impl Knowledge {
                         validate(&mut instructions);
                     }
                 }
-                TermOrigin::DecryptAsymmetric {
+                &TermOrigin::DecryptAsymmetric {
                     term,
                     key,
                     after_msg,
-                } => todo!(),
+                } => {
+                    if after_msg == nr {
+                        instructions.push(Instruction::DecryptAsymmetric {
+                            term,
+                            key,
+                            into: i.id,
+                        });
+                        validate(&mut instructions);
+                    }
+                }
                 &TermOrigin::Decompose {
                     from,
                     index,
@@ -307,6 +397,28 @@ impl Knowledge {
                         instructions.push(Instruction::SymEnc {
                             body,
                             key,
+                            into: i.id,
+                        });
+                    }
+                }
+                &TermOrigin::AsymEnc { for_msg, body, key } => {
+                    if nr == for_msg {
+                        instructions.push(Instruction::AsymEnc {
+                            body,
+                            key,
+                            into: i.id,
+                        });
+                    }
+                }
+                TermOrigin::Evaluate {
+                    for_msg,
+                    func,
+                    args,
+                } => {
+                    if nr == *for_msg {
+                        instructions.push(Instruction::Evaluate {
+                            func: func.clone(),
+                            args: args.clone(),
                             into: i.id,
                         });
                     }
@@ -380,6 +492,16 @@ enum TermOrigin {
         body: InfoId,
         key: InfoId,
     },
+    Evaluate {
+        for_msg: MessageNr,
+        func: String,
+        args: Vec<InfoId>,
+    },
+    AsymEnc {
+        for_msg: MessageNr,
+        body: InfoId,
+        key: InfoId,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -424,6 +546,21 @@ pub enum Instruction {
     ComputeInitialKnowledgeFrom {
         number_given: usize,
         into: Vec<InfoId>,
+    },
+    Evaluate {
+        func: String,
+        args: Vec<InfoId>,
+        into: InfoId,
+    },
+    AsymEnc {
+        body: InfoId,
+        key: InfoId,
+        into: InfoId,
+    },
+    DecryptAsymmetric {
+        term: InfoId,
+        key: InfoId,
+        into: InfoId,
     },
 }
 
@@ -475,7 +612,7 @@ pub struct AgentModel {
 #[derive(Debug, Clone)]
 pub enum MessageThingy {
     Initiate(Vec<Term>),
-    Pattern(MessagePattern),
+    Pattern(Vec<Term>),
 }
 
 #[derive(Debug, Clone)]
@@ -506,7 +643,6 @@ pub struct Response {
 #[derive(Debug, Clone)]
 pub struct MessageInstructions {
     pub id: MessageId,
-    pub match_on: MessageThingy,
     pub instructions: Vec<Instruction>,
     pub response: Response,
 }
@@ -514,6 +650,7 @@ pub struct MessageInstructions {
 #[derive(Debug, Clone)]
 pub struct CustomType {
     pub name: String,
+    pub with_fn: Option<(Vec<Type>, Option<Type>)>,
 }
 
 #[derive(Debug, Clone)]
@@ -539,6 +676,10 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
             .initial_knowledge
             .iter()
             .cloned()
+            // .filter(|t| match t {
+            //     Term::Constant(macor::protocol::Constant::Function(_)) => false,
+            //     _ => true,
+            // })
             .enumerate()
             .map(|(i, t)| {
                 (
@@ -680,8 +821,7 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
 
                     messages.push(MessageInstructions {
                         id: MessageId::Nr(msg.nr),
-                        match_on: MessageThingy::Pattern(msg.clone()),
-                        instructions: knowledge.generate_instructions(msg, msg.nr),
+                        instructions: knowledge.generate_instructions(msg.nr),
                         response: Response {
                             save_connection_as: None,
                             send: SendMessage::Nothing,
@@ -712,8 +852,8 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
 
                     match prev {
                         Some(prev) => {
-                            let mut prev_insts = knowledge.generate_instructions(prev, prev.nr);
-                            let insts = knowledge.generate_instructions(msg, msg.nr);
+                            let mut prev_insts = knowledge.generate_instructions(prev.nr);
+                            let insts = knowledge.generate_instructions(msg.nr);
 
                             if prev.is_first_for_agent {
                                 prev_insts.insert(
@@ -731,7 +871,6 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
 
                             messages.push(MessageInstructions {
                                 id: MessageId::Nr(prev.nr),
-                                match_on: MessageThingy::Pattern(prev.clone()),
                                 instructions: prev_insts.into_iter().chain(insts).collect(),
                                 response: Response {
                                     save_connection_as: save_connection_as.take(),
@@ -758,9 +897,6 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
 
                             messages.push(MessageInstructions {
                                 id: MessageId::Initialize,
-                                match_on: MessageThingy::Initiate(
-                                    agent.initial_knowledge.iter().cloned().collect(),
-                                ),
                                 instructions: knowledge
                                     .initial
                                     .iter()
@@ -768,7 +904,7 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
                                         index: RegisterIndex(index),
                                         id,
                                     })
-                                    .chain(knowledge.generate_instructions(msg, msg.nr))
+                                    .chain(knowledge.generate_instructions(msg.nr))
                                     .collect(),
                                 response: Response {
                                     save_connection_as: save_connection_as.take(),
@@ -808,7 +944,7 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
         //             Some((p_msg, mut p)) => match msg.direction {
         //                 Direction::Ingoing => todo!(),
         //                 Direction::Outgoing => {
-        //                     let insts = knowledge.generate_instructions(msg, msg.nr);
+        //                     let insts = knowledge.generate_instructions( msg.nr);
         //                     p.extend_from_slice(&insts);
         //                     messages.push(MessageInstructions {
         //                         match_on: p_msg,
@@ -839,7 +975,7 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
         //             },
         //             None => match msg.direction {
         //                 Direction::Ingoing => {
-        //                     let mut insts = knowledge.generate_instructions(msg, msg.nr);
+        //                     let mut insts = knowledge.generate_instructions( msg.nr);
 
         //                     if msg.is_first_for_agent {
         //                         insts.insert(
@@ -910,9 +1046,10 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
 
     let mut custom_types = vec![];
 
-    for (name, (_args, _ret)) in &protocol.functions {
+    for (name, (args, ret)) in &protocol.functions {
         custom_types.push(CustomType {
             name: name.to_string(),
+            with_fn: Some((args.clone(), ret.clone())),
         });
     }
 
@@ -937,6 +1074,5 @@ fn prepate_model(src: &str, doc: Document<&str>) -> anyhow::Result<ProtocolModel
     })
 }
 pub fn generate(src: &str, doc: Document<&str>) -> anyhow::Result<TokenStream> {
-    let model = prepate_model(src, doc)?;
-    Ok(model.rust())
+    Ok(prepate_model(src, doc)?.rust())
 }

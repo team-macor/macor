@@ -4,27 +4,20 @@ Protocol: KeyEx
 # SAFE!
 
 Types:
-  Agent A,B,s;
-  Number NA,NB,Shhh;
+  Agent A,B,C;
+  Number NA;
   Symmetric_key KAB;
-  Function sk
+  Function pk
 
 Knowledge:
-  A: A,B,s,sk(A,s);
-  B: A,B,s,sk(B,s);
-  s: A,B,s,sk(A,s),sk(B,s)
+  A: A,B,pk(A),pk(B),inv(pk(A));
+  B: A,B,pk(A),pk(B),inv(pk(B))
 
 Actions:
 
-# B creates NB
-B->A: A,B,NB
-# A creates NA
-A->s: A,B,NA,NB
-# s creates key KAB
-s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s,Shhh |}sk(B,s)
-A->B: {| KAB,A,NB,s,Shhh |}sk(B,s)
-B->A: sk(B,s)
+A->B: {| A,B,NA |}KAB, { A,B,KAB }pk(B)
+B->A: KAB,NA,A,B
 
 Goals:
 
-KAB secret between A,B,s
+KAB secret between A,B

@@ -9,10 +9,10 @@ struct Cli {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let addr: SocketAddr = format!("0.0.0.0:{}", &cli.port).parse()?;
+    let addr = format!("0.0.0.0:{}", &cli.port);
 
     println!("Waiting for connection on {addr}");
-    let mut channel = TcpChannel::listen(addr)?;
+    let mut channel = TcpChannel::listen(addr.parse()?)?;
     println!("Got connection!");
 
     loop {

@@ -30,6 +30,7 @@ pub enum Func<U = Ident<SmolStr>> {
     AsymEnc,
     Exp,
     Inv,
+    AsymKey(U),
     User(U),
 }
 
@@ -54,6 +55,7 @@ impl<S: Stage> std::fmt::Debug for Term<S> {
                 Func::AsymEnc => write!(f, "{{ {:?} }}{:?}", args[0], args[1]),
                 Func::Inv => f.debug_tuple("Inverse").field(&args[0]).finish(),
                 Func::Exp => f.debug_tuple("Exp").field(&args[0]).finish(),
+                Func::AsymKey(name) => write!(f, "{}({:?})", name, args.iter().format(", ")),
                 Func::User(name) => write!(f, "{}({:?})", name, args.iter().format(", ")),
             },
             Self::Tuple(ts) => write!(f, ":({:?})", ts.iter().format(", ")),
@@ -304,26 +306,7 @@ impl Protocol {
     }
 
     pub fn new(src: String, document: ast::Document<&str>) -> Result<Protocol, Vec<TypingError>> {
-        let mut ctx = TypingContext {
-            types: document
-                .types
-                .iter()
-                .flat_map(|(key, xs)| {
-                    let ty = match key {
-                        ast::TypesKey::Agent => Type::Agent,
-                        ast::TypesKey::Number => Type::Number,
-                        ast::TypesKey::SymmetricKey => Type::SymmetricKey,
-                        ast::TypesKey::PublicKey => todo!(),
-                        ast::TypesKey::Function => Type::Function,
-                    };
-
-                    xs.iter().map(move |x| (x.to_string(), ty))
-                })
-                .collect(),
-            errors: Vec::new(),
-            functions: HashMap::new(),
-            src,
-        };
+        let mut ctx = TypingContext::new(src, &document);
 
         let mut actions = document
             .actions
@@ -412,7 +395,7 @@ impl Protocol {
 
         if ctx.errors.is_empty() {
             Ok(Protocol {
-                functions: ctx.functions,
+                functions: ctx.functions_with_ret(),
                 agents,
                 initiations,
                 goals,
@@ -444,6 +427,7 @@ impl<T> Func<T> {
             Func::AsymEnc => Func::AsymEnc,
             Func::Exp => Func::Exp,
             Func::Inv => Func::Inv,
+            Func::AsymKey(c) => Func::AsymKey(f(c)),
             Func::User(c) => Func::User(f(c)),
         }
     }
@@ -514,7 +498,7 @@ impl Term {
                 Constant::Agent(a) => Some(a.span()),
                 Constant::Function(f) => match f {
                     Func::SymEnc | Func::AsymEnc | Func::Exp | Func::Inv => None,
-                    Func::User(f) => Some(f.span()),
+                    Func::AsymKey(f) | Func::User(f) => Some(f.span()),
                 },
                 Constant::Nonce(_) => None,
             },
@@ -524,6 +508,7 @@ impl Term {
                     Func::AsymEnc => None,
                     Func::Exp => None,
                     Func::Inv => None,
+                    Func::AsymKey(u) => Some(u.span()),
                     Func::User(u) => Some(u.span()),
                 },
                 |a, b| match a {

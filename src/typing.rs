@@ -1,11 +1,11 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     hash::Hash,
     marker::PhantomData,
 };
 
 use itertools::Itertools;
-use macor_parse::ast::Ident;
+use macor_parse::ast::{self, Document, Ident};
 use miette::SourceSpan;
 use smol_str::SmolStr;
 
@@ -38,6 +38,7 @@ impl Stage for TypedStage {
 pub enum Type {
     Agent,
     SymmetricKey,
+    AsymmetricKey,
     Number,
     Function,
 }
@@ -51,6 +52,14 @@ pub enum TypingError {
         src: String,
         name: String,
         #[label("This symmetric key must have an uppercase name")]
+        err_span: SourceSpan,
+    },
+    #[error("Asymmetric key '{name}' cannot be constant")]
+    #[diagnostic()]
+    ConstantAsymmetricKey {
+        src: String,
+        name: String,
+        #[label("This asymmetric key must have an uppercase name")]
         err_span: SourceSpan,
     },
     #[error("Nonce '{name}' cannot be constant")]
@@ -100,15 +109,95 @@ pub struct TypingContext {
     pub src: String,
     pub types: HashMap<String, Type>,
     pub errors: Vec<TypingError>,
+    asymmetric_functions: HashSet<Ident<SmolStr>>,
     pub functions: HashMap<Ident<SmolStr>, (Vec<Type>, Option<Type>)>,
 }
+
+fn extract_asymmetric_functions<'s>(t: &ast::Term<&'s str>) -> HashSet<Ident<&'s str>> {
+    match t {
+        ast::Term::Var(_) => Default::default(),
+        ast::Term::Fun(_, args) => args.iter().flat_map(extract_asymmetric_functions).collect(),
+        ast::Term::SymEnc(body, key) => body
+            .iter()
+            .chain(std::iter::once(&**key))
+            .flat_map(extract_asymmetric_functions)
+            .collect(),
+        ast::Term::AsymEnc(body, key) => {
+            let mut inner: HashSet<_> = body
+                .iter()
+                .chain(std::iter::once(&**key))
+                .flat_map(extract_asymmetric_functions)
+                .collect();
+            match &**key {
+                ast::Term::Var(_) => {}
+                ast::Term::Fun(f, _) => {
+                    inner.insert(f.clone());
+                }
+                ast::Term::SymEnc(_, _) => {}
+                ast::Term::AsymEnc(_, _) => {}
+            }
+
+            inner
+        }
+    }
+}
+
 impl TypingContext {
+    pub fn new(src: String, doc: &Document<&str>) -> TypingContext {
+        let from_knowledge = doc
+            .knowledge
+            .agents
+            .iter()
+            .flat_map(|a| a.1.iter().flat_map(extract_asymmetric_functions));
+        let from_action = doc
+            .actions
+            .iter()
+            .flat_map(|a| a.terms.iter().flat_map(extract_asymmetric_functions));
+
+        Self {
+            types: doc
+                .types
+                .iter()
+                .flat_map(|(key, xs)| {
+                    let ty = match key {
+                        ast::TypesKey::Agent => Type::Agent,
+                        ast::TypesKey::Number => Type::Number,
+                        ast::TypesKey::SymmetricKey => Type::SymmetricKey,
+                        ast::TypesKey::PublicKey => todo!(),
+                        ast::TypesKey::Function => Type::Function,
+                    };
+
+                    xs.iter().map(move |x| (x.to_string(), ty))
+                })
+                .collect(),
+            errors: Vec::new(),
+            asymmetric_functions: from_knowledge
+                .chain(from_action)
+                .map(|s| s.map(Into::into))
+                .collect(),
+            functions: HashMap::new(),
+            src,
+        }
+    }
     pub fn lookup(&self, name: &str) -> Option<Type> {
         self.types.get(name).cloned()
     }
 
     fn src(&self) -> String {
         format!("{}\n", self.src)
+    }
+
+    pub fn functions_with_ret(&self) -> HashMap<Ident<SmolStr>, (Vec<Type>, Option<Type>)> {
+        self.functions
+            .iter()
+            .map(|(name, (args, ret))| {
+                if self.asymmetric_functions.contains(name) {
+                    (name.clone(), (args.clone(), Some(Type::AsymmetricKey)))
+                } else {
+                    (name.clone(), (args.clone(), ret.clone()))
+                }
+            })
+            .collect()
     }
 }
 
@@ -150,6 +239,16 @@ impl Term<UntypedStage<'_>> {
                             }
                             Term::Variable(Variable::SymmetricKey(name.convert()))
                         }
+                        Type::AsymmetricKey => {
+                            if name.is_constant() {
+                                ctx.errors.push(TypingError::ConstantAsymmetricKey {
+                                    src: ctx.src(),
+                                    name: name.to_string(),
+                                    err_span: name.span(),
+                                });
+                            }
+                            todo!()
+                        }
                         Type::Number => {
                             if name.is_constant() {
                                 ctx.errors.push(TypingError::ConstantNonce {
@@ -190,9 +289,11 @@ impl Term<UntypedStage<'_>> {
                         todo!()
                     }
 
+                    let args = args.iter().map(|x| x.to_typed(ctx)).collect_vec();
+
                     Term::Composition {
                         func: func.clone(),
-                        args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                        args,
                     }
                 }
                 Func::Inv => {
@@ -205,6 +306,7 @@ impl Term<UntypedStage<'_>> {
                         args: args.iter().map(|x| x.to_typed(ctx)).collect(),
                     }
                 }
+                Func::AsymKey(_) => unreachable!(),
                 Func::User(name) => {
                     if let Some(ty) = ctx.lookup(name.as_str()) {
                         match ty {
@@ -248,9 +350,16 @@ impl Term<UntypedStage<'_>> {
                         });
                     }
 
-                    Term::Composition {
-                        func: Func::User(name.clone()),
-                        args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                    if ctx.asymmetric_functions.contains(name) {
+                        Term::Composition {
+                            func: Func::AsymKey(name.clone()),
+                            args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                        }
+                    } else {
+                        Term::Composition {
+                            func: Func::User(name.clone()),
+                            args: args.iter().map(|x| x.to_typed(ctx)).collect(),
+                        }
                     }
                 }
             },

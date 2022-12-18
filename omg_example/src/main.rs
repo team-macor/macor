@@ -4,20 +4,36 @@ use anyhow::Context;
 use omg::{comm::TcpChannel, terms::*, Base};
 use omg_crypt::RingBase;
 
+mod asymtest;
+
 mod test;
 use test as proto;
+use tracing::info;
 
-impl proto::Terms for RingBase {
-    type User_sk = String;
-}
+fn sym_test() -> anyhow::Result<()> {
+    impl proto::Terms for RingBase {
+        type User_sk = String;
 
-fn main() -> anyhow::Result<()> {
+        type User_h = String;
+
+        fn h(
+            &mut self,
+            arg_0: &<Self as Base>::Agent,
+            arg_1: &<Self as Base>::Agent,
+        ) -> Self::User_h {
+            format!("md5({arg_0:?}, {arg_1:?})")
+        }
+
+        fn sk(
+            &mut self,
+            arg_0: &<Self as Base>::Agent,
+            arg_1: &<Self as Base>::Agent,
+        ) -> Self::User_sk {
+            todo!()
+        }
+    }
+
     use proto::*;
-
-    tracing_subscriber::fmt::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .without_time()
-        .init();
 
     let network_mapping = |_, name: &<RingBase as Base>::Agent| match name.as_str() {
         "joe" => "0.0.0.0:8080".parse().unwrap(),
@@ -82,6 +98,91 @@ fn main() -> anyhow::Result<()> {
     joe_thread.join().unwrap().with_context(|| "Joe")?;
     mike_thread.join().unwrap().with_context(|| "Mike")?;
     robert_thread.join().unwrap().with_context(|| "Robert")?;
+
+    Ok(())
+}
+impl asymtest::Terms for RingBase {
+    type User_pk = ();
+
+    fn pk(&mut self, arg_0: &<Self as Base>::Agent) -> <Self as Base>::AsymmetricKey {
+        todo!()
+    }
+}
+fn asym_test() -> anyhow::Result<()> {
+    use asymtest::*;
+
+    info!("Generating key pair for a");
+    let (pk_a, inv_a) = RingBase::gen_key_pair()?;
+    info!("Generating key pair for b");
+    let (pk_b, inv_b) = RingBase::gen_key_pair()?;
+    info!("Done!");
+
+    let network_mapping = |_, name: &<RingBase as Base>::Agent| match name.as_str() {
+        "mike" => "0.0.0.0:8080".parse().unwrap(),
+        x => todo!("addr for {x:?}"),
+    };
+    let a_pk_a = pk_a.clone();
+    let a_pk_b = pk_b.clone();
+    let joe_thread = std::thread::spawn(move || {
+        let scope = tracing::span!(tracing::Level::INFO, "   Joe");
+        let _enter = scope.enter();
+        agent_A::run::<_, TcpChannel<_, _>>(
+            &mut RingBase::new(),
+            |a| match a {},
+            network_mapping,
+            Initiate(
+                // A
+                Agent("joe".to_string()),
+                // B
+                Agent("mike".to_string()),
+                // pk(A)
+                AsymmetricKey(a_pk_a, PhantomData),
+                // pk(B)
+                AsymmetricKey(a_pk_b, PhantomData),
+                // inv(pk(A))
+                Inv(inv_a, PhantomData),
+            ),
+        )
+    });
+    let mike_thread = std::thread::spawn(move || {
+        let scope = tracing::span!(tracing::Level::INFO, "  Mike");
+        let _enter = scope.enter();
+        agent_B::listen::<_, TcpChannel<_, _>>(
+            &mut RingBase::new(),
+            |p| match p {
+                agent_B::ListenPort::A => "0.0.0.0:8080".parse().unwrap(),
+            },
+            network_mapping,
+            |_, m| {
+                Ok((
+                    // A
+                    Agent("joe".to_string()),
+                    // B
+                    Agent("mike".to_string()),
+                    // pk(A)
+                    AsymmetricKey(pk_a.clone(), PhantomData),
+                    // pk(B)
+                    AsymmetricKey(pk_b.clone(), PhantomData),
+                    // inv(pk(B))
+                    Inv(inv_b.clone(), PhantomData),
+                ))
+            },
+        )
+    });
+
+    joe_thread.join().unwrap().with_context(|| "Joe")?;
+    mike_thread.join().unwrap().with_context(|| "Mike")?;
+
+    Ok(())
+}
+
+fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .without_time()
+        .init();
+
+    asym_test()?;
 
     Ok(())
 }

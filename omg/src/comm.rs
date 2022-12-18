@@ -10,9 +10,10 @@ use tracing::{info, instrument, warn};
 pub trait Channel<I, O>: Sized {
     type Recipient;
     type Error: std::error::Error;
+    type Addr;
 
     fn connect(recipient: Self::Recipient) -> Result<Self, Self::Error>;
-    fn listen<A: ToSocketAddrs + std::fmt::Debug>(address: A) -> Result<Self, Self::Error>;
+    fn listen(address: Self::Addr) -> Result<Self, Self::Error>;
 
     fn send(&mut self, msg: O) -> Result<(), Self::Error>;
     fn receive(&mut self) -> Result<I, Self::Error>;
@@ -49,6 +50,7 @@ where
 {
     type Recipient = SocketAddr;
     type Error = Error;
+    type Addr = SocketAddr;
 
     #[instrument]
     fn connect(recipient: Self::Recipient) -> Result<Self, Self::Error> {
@@ -63,7 +65,7 @@ where
     }
 
     #[instrument]
-    fn listen<A: ToSocketAddrs + std::fmt::Debug>(address: A) -> Result<Self, Self::Error> {
+    fn listen(address: Self::Addr) -> Result<Self, Self::Error> {
         let a = format!("{address:?}");
         info!("listening on {a}");
         let listener = TcpListener::bind(address)?;

@@ -38,6 +38,7 @@ impl std::fmt::Display for FullTerm {
                 Func::Exp => write!(f, "exp({})", args.iter().format(", ")),
                 Func::Inv => write!(f, "inv({})", args.iter().format(", ")),
                 Func::User(name) => write!(f, "{}({})", name, args.iter().format(", ")),
+                Func::AsymKey(name) => write!(f, "{}({})", name, args.iter().format(", ")),
             },
             Term::Tuple(args) => write!(f, "<{}>", args.iter().format(", ")),
         }

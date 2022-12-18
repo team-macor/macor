@@ -5,6 +5,7 @@ use omg::{AsymmetricKey, AsymmetricKeyInv};
 use ring::aead;
 use ring::pbkdf2;
 use ring::rand::SystemRandom;
+use rsa::{PaddingScheme, PublicKey};
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::num::NonZeroU32;
@@ -13,14 +14,15 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct RingBase {
     rng: SystemRandom,
+    rng_2: rsa::rand_core::OsRng,
     salt: [u8; 32],
 }
 
 impl RingBase {
     pub fn new() -> Self {
-        let rng = SystemRandom::new();
         Self {
-            rng,
+            rng: SystemRandom::new(),
+            rng_2: Default::default(),
             salt: [42; 32],
         }
     }
@@ -43,15 +45,30 @@ impl RingBase {
         Ok(aead::UnboundKey::new(&aead::AES_256_GCM, &key)
             .with_context(|| "unbound key aead::AES_256_GCM")?)
     }
+
+    pub fn gen_key_pair() -> anyhow::Result<(RsaPublicKey<Self>, RsaPrivateKey<Self>)> {
+        let mut rng = rsa::rand_core::OsRng;
+
+        let bits = 2048;
+        let private_key =
+            rsa::RsaPrivateKey::new(&mut rng, bits).expect("failed to generate a key");
+        let public_key = rsa::RsaPublicKey::from(&private_key);
+
+        Ok((
+            RsaPublicKey {
+                inner: public_key,
+                marker: PhantomData,
+            },
+            RsaPrivateKey {
+                inner: private_key,
+                marker: PhantomData,
+            },
+        ))
+    }
 }
 
 const NUMBER_SIZE: usize = 12;
-// pub trait Stuff = Clone
-//   + std::fmt::Debug
-//   + PartialEq
-//   + Eq
-//   + serde::Serialize
-//   + serde::de::DeserializeOwned;
+
 #[derive(Debug, Serialize, Deserialize, Educe)]
 #[educe(PartialEq(bound = "B: Sized"))]
 #[educe(Eq(bound = "B: Sized"))]
@@ -85,7 +102,7 @@ impl Base for RingBase {
     type Number = [u8; NUMBER_SIZE];
     type Exp = ();
     type Const = ();
-    type AsymEnc = (Self::Number, Vec<u8>);
+    type AsymEnc = Vec<u8>;
     type SymEnc = (Self::Number, Vec<u8>);
 
     fn generate_nonce(&mut self) -> Self::Number {
@@ -124,7 +141,14 @@ impl Base for RingBase {
         body: &B,
         key: &Self::AsymmetricKey,
     ) -> anyhow::Result<Self::AsymEnc> {
-        todo!()
+        let body = postcard::to_allocvec(body)?;
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let body = key
+            .inner
+            .encrypt(&mut self.rng_2, padding, &body[..])
+            .expect("failed to encrypt");
+
+        Ok(body)
     }
 
     fn symmetric_dencrypt<K: serde::Serialize + std::fmt::Debug, P: serde::de::DeserializeOwned>(
@@ -153,6 +177,11 @@ impl Base for RingBase {
         body: &Self::AsymEnc,
         key: &Self::AsymmetricKeyInv,
     ) -> anyhow::Result<P> {
-        todo!()
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let body = key
+            .inner
+            .decrypt(padding, &body)
+            .with_context(|| format!("dencrypting with {key:?}"))?;
+        Ok(postcard::from_bytes(&body)?)
     }
 }
