@@ -124,23 +124,53 @@ where
     }
 }
 
-pub struct PlainTcp<I, O> {
+#[derive(Educe)]
+#[educe(Debug)]
+pub struct TcpJsonChannel<I, O> {
+    stream: TcpStream,
+    #[educe(Debug(ignore))]
     marker: PhantomData<(I, O)>,
 }
 
-impl<I, O> PlainTcp<I, O>
+impl<I, O> Channel<I, O> for TcpJsonChannel<I, O>
 where
-    I: DeserializeOwned,
-    O: Serialize,
+    I: DeserializeOwned + std::fmt::Debug,
+    O: Serialize + std::fmt::Debug,
 {
-    pub fn new() -> Self {
-        PlainTcp {
+    type Recipient = SocketAddr;
+    type Error = Error;
+    type Addr = SocketAddr;
+
+    #[instrument]
+    fn connect(recipient: Self::Recipient) -> Result<Self, Self::Error> {
+        let stream = TcpStream::connect(recipient)?;
+
+        info!("connected to {recipient:?}");
+
+        Ok(TcpJsonChannel {
+            stream,
             marker: PhantomData,
-        }
+        })
     }
 
-    pub fn send(&mut self, msg: O) -> Result<Vec<u8>, anyhow::Error> {
-        let body = postcard::to_allocvec(&msg)?;
+    #[instrument]
+    fn listen(address: Self::Addr) -> Result<Self, Self::Error> {
+        let a = format!("{address:?}");
+        info!("listening on {a}");
+        let listener = TcpListener::bind(address)?;
+        let (stream, _) = listener.accept()?;
+        info!("got connection on {a}");
+
+        Ok(TcpJsonChannel {
+            stream,
+            marker: PhantomData,
+        })
+    }
+
+    fn send(&mut self, msg: O) -> Result<(), Self::Error> {
+        info!("Sending {msg:?}");
+
+        let body = serde_json::to_string(&msg).unwrap();
         let mut header_buf = [0; Header::POSTCARD_MAX_SIZE];
 
         let header = Header {
@@ -150,25 +180,35 @@ where
             "Header buf should have been sized according to maximum possible serialization size",
         );
 
-        let mut output = vec![];
+        self.stream.write_all(&header_buf)?;
+        self.stream.write_all(&body.as_bytes())?;
 
-        output.write_all(&header_buf)?;
-        output.write_all(&body)?;
-
-        Ok(output)
+        Ok(())
     }
 
-    pub fn receive(&mut self, bytes: Vec<u8>) -> Result<I, anyhow::Error> {
+    fn receive(&mut self) -> Result<I, Self::Error> {
         let mut header_buf = [0; Header::POSTCARD_MAX_SIZE];
 
-        header_buf.copy_from_slice(&bytes[0..Header::POSTCARD_MAX_SIZE]);
+        if let Err(e) = self.stream.read_exact(&mut header_buf) {
+            tracing::error!("Failed to get message header: {e:?}");
+            panic!("Failed to get the message header");
+        }
 
         let header: Header =
             postcard::from_bytes(&header_buf).expect("Failed to deserialize message header");
 
         let mut body_buf = vec![0; header.body_size];
-        body_buf.copy_from_slice(&bytes[header_buf.len()..]);
+        self.stream.read_exact(&mut body_buf)?;
 
-        Ok(postcard::from_bytes(&body_buf)?)
+        let msg = serde_json::from_slice(&body_buf).unwrap();
+        info!("Received {msg:?}");
+
+        Ok(msg)
+    }
+
+    fn close(self) -> Result<(), Self::Error> {
+        self.stream.shutdown(Shutdown::Both)?;
+
+        Ok(())
     }
 }

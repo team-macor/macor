@@ -2,7 +2,11 @@ use std::marker::PhantomData;
 
 use anyhow::Context;
 use clap::Parser;
-use omg::{comm::TcpChannel, terms::*, Base};
+use omg::{
+    comm::{TcpChannel, TcpJsonChannel},
+    terms::*,
+    Base,
+};
 use omg_crypt::RingBase;
 
 mod asymtest;
@@ -44,7 +48,7 @@ fn sym_test() -> anyhow::Result<()> {
     let joe_thread = std::thread::spawn(move || {
         let scope = tracing::span!(tracing::Level::INFO, "   Joe");
         let _enter = scope.enter();
-        agent_A::listen::<_, TcpChannel<_, _>>(
+        agent_A::listen::<_, TcpJsonChannel<_, _>>(
             &mut RingBase::new(),
             |p| match p {
                 agent_A::ListenPort::B => "0.0.0.0:8080".parse().unwrap(),
@@ -63,7 +67,7 @@ fn sym_test() -> anyhow::Result<()> {
     let robert_thread = std::thread::spawn(move || {
         let scope = tracing::span!(tracing::Level::INFO, "Robert");
         let _enter = scope.enter();
-        agent_s::listen::<_, TcpChannel<_, _>>(
+        agent_s::listen::<_, TcpJsonChannel<_, _>>(
             &mut RingBase::new(),
             |p| match p {
                 agent_s::ListenPort::A => "0.0.0.0:8081".parse().unwrap(),
@@ -83,7 +87,7 @@ fn sym_test() -> anyhow::Result<()> {
     let mike_thread = std::thread::spawn(move || {
         let scope = tracing::span!(tracing::Level::INFO, "  Mike");
         let _enter = scope.enter();
-        agent_B::run::<_, TcpChannel<_, _>>(
+        agent_B::run::<_, TcpJsonChannel<_, _>>(
             &mut RingBase::new(),
             |a| match a {},
             network_mapping,
@@ -183,8 +187,9 @@ fn main() -> anyhow::Result<()> {
         .without_time()
         .init();
 
-    multi_agent()?;
+    // multi_agent()?;
     // asym_test()?;
+    sym_test()?;
 
     Ok(())
 }
@@ -220,7 +225,7 @@ fn multi_agent() -> anyhow::Result<()> {
         Cli::A { s, b_port } => {
             let scope = tracing::span!(tracing::Level::INFO, "A");
             let _enter = scope.enter();
-            agent_A::listen::<_, TcpChannel<_, _>>(
+            agent_A::listen::<_, TcpJsonChannel<_, _>>(
                 &mut RingBase::new(),
                 |p| match p {
                     agent_A::ListenPort::B => format!("0.0.0.0:{b_port}").parse().unwrap(),
@@ -243,7 +248,7 @@ fn multi_agent() -> anyhow::Result<()> {
         Cli::B { name, a, s } => {
             let scope = tracing::span!(tracing::Level::INFO, "B");
             let _enter = scope.enter();
-            agent_B::run::<_, TcpChannel<_, _>>(
+            agent_B::run::<_, TcpJsonChannel<_, _>>(
                 &mut RingBase::new(),
                 |a| match a {},
                 |agent, _| match agent {
@@ -262,7 +267,7 @@ fn multi_agent() -> anyhow::Result<()> {
         Cli::S { name, a_port } => {
             let scope = tracing::span!(tracing::Level::INFO, "s");
             let _enter = scope.enter();
-            agent_s::listen::<_, TcpChannel<_, _>>(
+            agent_s::listen::<_, TcpJsonChannel<_, _>>(
                 &mut RingBase::new(),
                 |p| match p {
                     agent_s::ListenPort::A => format!("0.0.0.0:{a_port}").parse().unwrap(),

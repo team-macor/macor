@@ -305,6 +305,11 @@ impl Backend {
                             return Some(format!("Function: `{:?}`", v));
                         }
                     }
+                    protocol::Func::AsymKey(v) => {
+                        if v.contains(byte_offset) {
+                            return Some(format!("Asymmetric key: `{:?}`", v));
+                        }
+                    }
                 },
                 protocol::Constant::Nonce(_) => {}
             },
@@ -317,6 +322,11 @@ impl Backend {
                     protocol::Func::User(u) => {
                         if u.contains(byte_offset) {
                             return Some(format!("Function: `{:?}`", u));
+                        }
+                    }
+                    protocol::Func::AsymKey(v) => {
+                        if v.contains(byte_offset) {
+                            return Some(format!("Asymmetric key: `{:?}`", v));
                         }
                     }
                 }
