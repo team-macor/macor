@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use anyhow::Context;
+use clap::Parser;
 use omg::{comm::TcpChannel, terms::*, Base};
 use omg_crypt::RingBase;
 
@@ -182,7 +183,105 @@ fn main() -> anyhow::Result<()> {
         .without_time()
         .init();
 
-    asym_test()?;
+    multi_agent()?;
+    // asym_test()?;
 
     Ok(())
+}
+
+#[derive(Debug, clap::Parser)]
+enum Cli {
+    A {
+        #[clap(short, long)]
+        s: String,
+        #[clap(short, long)]
+        b_port: String,
+    },
+    B {
+        name: String,
+        #[clap(short, long)]
+        a: String,
+        #[clap(short, long)]
+        s: String,
+    },
+    S {
+        name: String,
+        #[clap(short, long)]
+        a_port: String,
+    },
+}
+
+fn multi_agent() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    use proto::*;
+
+    match cli {
+        Cli::A { s, b_port } => {
+            let scope = tracing::span!(tracing::Level::INFO, "A");
+            let _enter = scope.enter();
+            agent_A::listen::<_, TcpChannel<_, _>>(
+                &mut RingBase::new(),
+                |p| match p {
+                    agent_A::ListenPort::B => format!("0.0.0.0:{b_port}").parse().unwrap(),
+                },
+                |a, _| match a {
+                    ProtocolAgent::A => todo!(),
+                    ProtocolAgent::B => todo!(),
+                    ProtocolAgent::s => s.parse().unwrap(),
+                },
+                |_, m| {
+                    Ok((
+                        m.0.clone(),
+                        m.1.clone(),
+                        Agent(s.clone()),
+                        Func("Very good".to_string(), PhantomData),
+                    ))
+                },
+            )
+        }
+        Cli::B { name, a, s } => {
+            let scope = tracing::span!(tracing::Level::INFO, "B");
+            let _enter = scope.enter();
+            agent_B::run::<_, TcpChannel<_, _>>(
+                &mut RingBase::new(),
+                |a| match a {},
+                |agent, _| match agent {
+                    ProtocolAgent::A => a.parse().unwrap(),
+                    ProtocolAgent::B => todo!(),
+                    ProtocolAgent::s => s.parse().unwrap(),
+                },
+                Initiate(
+                    Agent(a.clone()),
+                    Agent(name),
+                    Agent(s.clone()),
+                    Func("Super cool".to_string(), PhantomData),
+                ),
+            )
+        }
+        Cli::S { name, a_port } => {
+            let scope = tracing::span!(tracing::Level::INFO, "s");
+            let _enter = scope.enter();
+            agent_s::listen::<_, TcpChannel<_, _>>(
+                &mut RingBase::new(),
+                |p| match p {
+                    agent_s::ListenPort::A => format!("0.0.0.0:{a_port}").parse().unwrap(),
+                },
+                |a, _| match a {
+                    ProtocolAgent::A => todo!(),
+                    ProtocolAgent::B => todo!(),
+                    ProtocolAgent::s => todo!(),
+                },
+                |_, m| {
+                    Ok((
+                        m.0.clone(),
+                        m.1.clone(),
+                        Agent(name.clone()),
+                        Func("Very good".to_string(), PhantomData),
+                        Func("Super cool".to_string(), PhantomData),
+                    ))
+                },
+            )
+        }
+    }
 }

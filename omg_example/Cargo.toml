@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
+clap = { version = "4.0.29", features = ["derive"] }
 educe = "0.4.20"
 omg = { path = "../omg" }
 omg_crypt = { version = "0.1.0", path = "../omg_crypt" }
