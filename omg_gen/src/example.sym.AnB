@@ -5,9 +5,9 @@ Protocol: KeyEx
 
 Types:
   Agent A,B,s;
-  Number NA,NB,Shhh;
-  Symmetric_key KAB;
-  Function sk,h
+  Number NA,NB,Delayed;
+  Symmetric_key KAB,K2;
+  Function sk
 
 Knowledge:
   A: A,B,s,sk(A,s);
@@ -15,16 +15,16 @@ Knowledge:
   s: A,B,s,sk(A,s),sk(B,s)
 
 Actions:
-
-# B creates NB
-B->A: A,B,NB,h(A,B)
-# A creates NA
-A->s: A,B,NA,NB
-# s creates key KAB
-s->A: {| KAB,B,NA |}sk(A,s), {| KAB,A,NB,s,Shhh |}sk(B,s)
-A->B: {| KAB,A,NB,s,Shhh |}sk(B,s)
-B->A: sk(B,s)
+  # B creates NB
+  B->A: A,B,NB
+  # A creates NA
+  A->s: A,B,NA,NB
+  # s creates key KAB
+  s->A: {| KAB,B,NA,{| Delayed |}K2 |}sk(A,s),
+        {| KAB,A,NB,K2 |}sk(B,s)
+  A->B: {| KAB,A,NB,K2 |}sk(B,s)
+  B->A: K2
 
 Goals:
-
-KAB secret between A,B,s
+  Delayed secret between A,s
+  KAB secret between A,B,s

@@ -22,7 +22,7 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
         Term::Constant(c) => match c {
             macor::protocol::Constant::Intruder => unreachable!(),
             macor::protocol::Constant::Agent(_) => quote!(Agent<<T as Base>::Agent>),
-            macor::protocol::Constant::Function(f) => todo!(),
+            macor::protocol::Constant::Function(_) => todo!(),
             macor::protocol::Constant::Nonce(_) => todo!(),
         },
         Term::Composition { func, args } => match func {
@@ -47,7 +47,7 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
                     Inv<<T as Base>::AsymmetricKeyInv, (#(#args),*)>
                 )
             }
-            Func::AsymKey(name) => {
+            Func::AsymKey(_) => {
                 let args = args.iter().map(term_to_rust_ty);
                 quote!(
                     AsymmetricKey<<T as Base>::AsymmetricKey, (#(#args),*)>

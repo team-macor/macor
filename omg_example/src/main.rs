@@ -19,16 +19,6 @@ fn sym_test() -> anyhow::Result<()> {
     impl proto::Terms for RingBase {
         type User_sk = String;
 
-        type User_h = String;
-
-        fn h(
-            &mut self,
-            arg_0: &<Self as Base>::Agent,
-            arg_1: &<Self as Base>::Agent,
-        ) -> Self::User_h {
-            format!("md5({arg_0:?}, {arg_1:?})")
-        }
-
         fn sk(
             &mut self,
             arg_0: &<Self as Base>::Agent,
@@ -187,9 +177,9 @@ fn main() -> anyhow::Result<()> {
         .without_time()
         .init();
 
-    // multi_agent()?;
+    multi_agent()?;
     // asym_test()?;
-    sym_test()?;
+    // sym_test()?;
 
     Ok(())
 }
