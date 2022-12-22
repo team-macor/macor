@@ -3,7 +3,10 @@ use macor::{
     protocol::{AgentName, Func, MessageNr, Term},
     typing::Type,
 };
-use quote::{__private::TokenStream, format_ident, quote, ToTokens, TokenStreamExt};
+use quote::{
+    __private::{TokenStream, TokenTree},
+    format_ident, quote, ToTokens, TokenStreamExt,
+};
 
 use crate::v2::{
     AgentModel, GenerateTy, InfoId, Instruction, MessageId, NextAction, ProtocolModel,
@@ -15,7 +18,7 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
         Term::Variable(v) => match v {
             macor::protocol::Variable::Agent(_) => quote!(Agent<<T as Base>::Agent>),
             macor::protocol::Variable::SymmetricKey(_) => {
-                quote!(SymmetricKey<<T as Base>::SymmetricKey>)
+                quote!(SymKey<<T as Base>::SymKey>)
             }
             macor::protocol::Variable::Number(_) => quote!(Number<<T as Base>::Number>),
         },
@@ -44,13 +47,13 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
             Func::Inv => {
                 let args = args.iter().map(term_to_rust_ty);
                 quote!(
-                    Inv<<T as Base>::AsymmetricKeyInv, (#(#args),*)>
+                    Inv<<T as Base>::AsymKeyInv, (#(#args),*)>
                 )
             }
             Func::AsymKey(_) => {
                 let args = args.iter().map(term_to_rust_ty);
                 quote!(
-                    AsymmetricKey<<T as Base>::AsymmetricKey, (#(#args),*)>
+                    AsymKey<<T as Base>::AsymKey, (#(#args),*)>
                 )
             }
             Func::User(name) => {
@@ -71,8 +74,8 @@ pub fn term_to_rust_ty(t: &Term) -> TokenStream {
 fn type_to_rs(ty: &Type) -> TokenStream {
     match ty {
         Type::Agent => quote!(<Self as Base>::Agent),
-        Type::SymmetricKey => quote!(<Self as Base>::SymmetricKey),
-        Type::AsymmetricKey => quote!(<Self as Base>::AsymmetricKey),
+        Type::SymmetricKey => quote!(<Self as Base>::SymKey),
+        Type::AsymmetricKey => quote!(<Self as Base>::AsymKey),
         Type::Number => quote!(<Self as Base>::Number),
         Type::Function => todo!(),
     }
@@ -611,6 +614,7 @@ impl AgentModel {
                 let instructions = msg.instructions.iter().map(|inst| {
                     // TODO: Figure out how to add normal comments
                     // let comment = format!("{inst:?}");
+
                     quote!(
                         // #[doc = #comment]
                         #inst
@@ -704,16 +708,16 @@ impl ToTokens for Instruction {
             }
             Instruction::Generate(ty, init) => {
                 let (f, wrapper) = match ty {
-                    GenerateTy::Nonce => (quote!(generate_nonce), quote!(Number)),
-                    GenerateTy::SymKey => (quote!(generate_sym_key), quote!(SymmetricKey)),
+                    GenerateTy::Nonce => (quote!(gen_nonce), quote!(Number)),
+                    GenerateTy::SymKey => (quote!(gen_sym_key), quote!(SymKey)),
                 };
                 quote!(knowledge.#init = Some(#wrapper(base.#f()));)
             }
-            Instruction::DecryptSymmetric { term, key, into } => {
-                quote!(knowledge.#into = Some(base.symmetric_dencrypt(&knowledge.#term.as_ref().unwrap().0, knowledge.#key.as_ref().unwrap())?);)
+            Instruction::DecryptSym { term, key, into } => {
+                quote!(knowledge.#into = Some(base.sym_decrypt(&knowledge.#term.as_ref().unwrap().0, knowledge.#key.as_ref().unwrap())?);)
             }
-            Instruction::DecryptAsymmetric { term, key, into } => {
-                quote!(knowledge.#into = Some(base.asymmetric_dencrypt(&knowledge.#term.as_ref().unwrap().0, &knowledge.#key.as_ref().unwrap().0)?);)
+            Instruction::DecryptAsym { term, key, into } => {
+                quote!(knowledge.#into = Some(base.asym_decrypt(&knowledge.#term.as_ref().unwrap().0, &knowledge.#key.as_ref().unwrap().0)?);)
             }
             Instruction::Compare { trusted, new } => {
                 quote!(assert_eq!(knowledge.#trusted, knowledge.#new);)
@@ -726,10 +730,10 @@ impl ToTokens for Instruction {
                 quote!(knowledge.#into = Some(Tuple((#(#ts,)*)));)
             }
             Instruction::SymEnc { body, key, into } => {
-                quote!(knowledge.#into = Some(SymEnc(base.symmetric_encrypt(knowledge.#body.as_ref().unwrap(), knowledge.#key.as_ref().unwrap())?, PhantomData));)
+                quote!(knowledge.#into = Some(SymEnc(base.sym_encrypt(knowledge.#body.as_ref().unwrap(), knowledge.#key.as_ref().unwrap())?, PhantomData));)
             }
             Instruction::AsymEnc { body, key, into } => {
-                quote!(knowledge.#into = Some(AsymEnc(base.asymmetric_encrypt(knowledge.#body.as_ref().unwrap(), &knowledge.#key.as_ref().unwrap().0)?, PhantomData));)
+                quote!(knowledge.#into = Some(AsymEnc(base.asym_encrypt(knowledge.#body.as_ref().unwrap(), &knowledge.#key.as_ref().unwrap().0)?, PhantomData));)
             }
             Instruction::ComputeInitialKnowledgeFrom {
                 number_given: _,

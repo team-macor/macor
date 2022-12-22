@@ -69,13 +69,13 @@ pub struct M2<T: Terms>(
     pub  SymEnc<
         <T as Base>::SymEnc,
         Tuple<(
-            SymmetricKey<<T as Base>::SymmetricKey>,
+            SymKey<<T as Base>::SymKey>,
             Agent<<T as Base>::Agent>,
             Number<<T as Base>::Number>,
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(Number<<T as Base>::Number>,)>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
             >,
         )>,
         Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
@@ -84,10 +84,10 @@ pub struct M2<T: Terms>(
     pub  SymEnc<
         <T as Base>::SymEnc,
         Tuple<(
-            SymmetricKey<<T as Base>::SymmetricKey>,
+            SymKey<<T as Base>::SymKey>,
             Agent<<T as Base>::Agent>,
             Number<<T as Base>::Number>,
-            SymmetricKey<<T as Base>::SymmetricKey>,
+            SymKey<<T as Base>::SymKey>,
         )>,
         Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
     >,
@@ -100,10 +100,10 @@ pub struct M3<T: Terms>(
     pub  SymEnc<
         <T as Base>::SymEnc,
         Tuple<(
-            SymmetricKey<<T as Base>::SymmetricKey>,
+            SymKey<<T as Base>::SymKey>,
             Agent<<T as Base>::Agent>,
             Number<<T as Base>::Number>,
-            SymmetricKey<<T as Base>::SymmetricKey>,
+            SymKey<<T as Base>::SymKey>,
         )>,
         Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
     >,
@@ -111,7 +111,7 @@ pub struct M3<T: Terms>(
 #[doc = "[@SymmetricKey(K2)]"]
 #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
 #[serde(bound = "")]
-pub struct M4<T: Terms>(#[doc = "@SymmetricKey(K2)"] pub SymmetricKey<<T as Base>::SymmetricKey>);
+pub struct M4<T: Terms>(#[doc = "@SymmetricKey(K2)"] pub SymKey<<T as Base>::SymKey>);
 pub mod agent_A {
     use super::*;
     #[doc = "The state for agent A"]
@@ -224,13 +224,13 @@ pub mod agent_A {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                     Agent<<T as Base>::Agent>,
                     Number<<T as Base>::Number>,
                     SymEnc<
                         <T as Base>::SymEnc,
                         Tuple<(Number<<T as Base>::Number>,)>,
-                        SymmetricKey<<T as Base>::SymmetricKey>,
+                        SymKey<<T as Base>::SymKey>,
                     >,
                 )>,
                 Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
@@ -241,10 +241,10 @@ pub mod agent_A {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                     Agent<<T as Base>::Agent>,
                     Number<<T as Base>::Number>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                 )>,
                 Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
             >,
@@ -252,18 +252,18 @@ pub mod agent_A {
         #[doc = ":(@SymmetricKey(KAB), @Agent(B), @Number(NA), {| :(@Number(Delayed)) |}@SymmetricKey(K2))"]
         i10: Option<
             Tuple<(
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
                 Agent<<T as Base>::Agent>,
                 Number<<T as Base>::Number>,
                 SymEnc<
                     <T as Base>::SymEnc,
                     Tuple<(Number<<T as Base>::Number>,)>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                 >,
             )>,
         >,
         #[doc = "@SymmetricKey(KAB)"]
-        i11: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i11: Option<SymKey<<T as Base>::SymKey>>,
         #[doc = "@Agent(B)"]
         i12: Option<Agent<<T as Base>::Agent>>,
         #[doc = "@Number(NA)"]
@@ -273,11 +273,11 @@ pub mod agent_A {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(Number<<T as Base>::Number>,)>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
             >,
         >,
         #[doc = "@SymmetricKey(K2)"]
-        i15: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i15: Option<SymKey<<T as Base>::SymKey>>,
         #[doc = ":(@Number(Delayed))"]
         i16: Option<Tuple<(Number<<T as Base>::Number>,)>>,
         #[doc = "@Number(Delayed)"]
@@ -433,7 +433,7 @@ pub mod agent_A {
                 knowledge.i5 = Some(m.1);
                 assert_eq!(knowledge.i1, knowledge.i5);
                 knowledge.i6 = Some(m.2);
-                knowledge.i7 = Some(Number(base.generate_nonce()));
+                knowledge.i7 = Some(Number(base.gen_nonce()));
                 Ok(Response {
                     save_connection_as: Some(ProtocolAgent::B),
                     send: SendMessage::Send {
@@ -454,7 +454,7 @@ pub mod agent_A {
                 let _enter = scope.enter();
                 knowledge.i8 = Some(m.0);
                 knowledge.i9 = Some(m.1);
-                knowledge.i10 = Some(base.symmetric_dencrypt(
+                knowledge.i10 = Some(base.sym_decrypt(
                     &knowledge.i8.as_ref().unwrap().0,
                     knowledge.i3.as_ref().unwrap(),
                 )?);
@@ -478,7 +478,7 @@ pub mod agent_A {
                 let scope = tracing::span!(tracing::Level::INFO, stringify!(M4));
                 let _enter = scope.enter();
                 knowledge.i15 = Some(m.0);
-                knowledge.i16 = Some(base.symmetric_dencrypt(
+                knowledge.i16 = Some(base.sym_decrypt(
                     &knowledge.i14.as_ref().unwrap().0,
                     knowledge.i15.as_ref().unwrap(),
                 )?);
@@ -579,10 +579,10 @@ pub mod agent_B {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                     Agent<<T as Base>::Agent>,
                     Number<<T as Base>::Number>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                 )>,
                 Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
             >,
@@ -590,20 +590,20 @@ pub mod agent_B {
         #[doc = ":(@SymmetricKey(KAB), @Agent(A), @Number(NB), @SymmetricKey(K2))"]
         i6: Option<
             Tuple<(
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
                 Agent<<T as Base>::Agent>,
                 Number<<T as Base>::Number>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
             )>,
         >,
         #[doc = "@SymmetricKey(KAB)"]
-        i7: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i7: Option<SymKey<<T as Base>::SymKey>>,
         #[doc = "@Agent(A)"]
         i8: Option<Agent<<T as Base>::Agent>>,
         #[doc = "@Number(NB)"]
         i9: Option<Number<<T as Base>::Number>>,
         #[doc = "@SymmetricKey(K2)"]
-        i10: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i10: Option<SymKey<<T as Base>::SymKey>>,
     }
     impl<T: Terms> Default for Knowledge<T> {
         fn default() -> Self {
@@ -729,7 +729,7 @@ pub mod agent_B {
                 knowledge.i1 = Some(m.1);
                 knowledge.i2 = Some(m.2);
                 knowledge.i3 = Some(m.3);
-                knowledge.i4 = Some(Number(base.generate_nonce()));
+                knowledge.i4 = Some(Number(base.gen_nonce()));
                 Ok(Response {
                     save_connection_as: None,
                     send: SendMessage::Send {
@@ -748,7 +748,7 @@ pub mod agent_B {
                 let scope = tracing::span!(tracing::Level::INFO, stringify!(M3));
                 let _enter = scope.enter();
                 knowledge.i5 = Some(m.0);
-                knowledge.i6 = Some(base.symmetric_dencrypt(
+                knowledge.i6 = Some(base.sym_decrypt(
                     &knowledge.i5.as_ref().unwrap().0,
                     knowledge.i3.as_ref().unwrap(),
                 )?);
@@ -880,11 +880,11 @@ pub mod agent_s {
         #[doc = "@Number(NB)"]
         i8: Option<Number<<T as Base>::Number>>,
         #[doc = "@SymmetricKey(KAB)"]
-        i9: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i9: Option<SymKey<<T as Base>::SymKey>>,
         #[doc = "@Number(Delayed)"]
         i10: Option<Number<<T as Base>::Number>>,
         #[doc = "@SymmetricKey(K2)"]
-        i11: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
+        i11: Option<SymKey<<T as Base>::SymKey>>,
         #[doc = ":(@Number(Delayed))"]
         i12: Option<Tuple<(Number<<T as Base>::Number>,)>>,
         #[doc = "{| :(@Number(Delayed)) |}@SymmetricKey(K2)"]
@@ -892,19 +892,19 @@ pub mod agent_s {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(Number<<T as Base>::Number>,)>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
             >,
         >,
         #[doc = ":(@SymmetricKey(KAB), @Agent(B), @Number(NA), {| :(@Number(Delayed)) |}@SymmetricKey(K2))"]
         i14: Option<
             Tuple<(
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
                 Agent<<T as Base>::Agent>,
                 Number<<T as Base>::Number>,
                 SymEnc<
                     <T as Base>::SymEnc,
                     Tuple<(Number<<T as Base>::Number>,)>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                 >,
             )>,
         >,
@@ -913,13 +913,13 @@ pub mod agent_s {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                     Agent<<T as Base>::Agent>,
                     Number<<T as Base>::Number>,
                     SymEnc<
                         <T as Base>::SymEnc,
                         Tuple<(Number<<T as Base>::Number>,)>,
-                        SymmetricKey<<T as Base>::SymmetricKey>,
+                        SymKey<<T as Base>::SymKey>,
                     >,
                 )>,
                 Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
@@ -928,10 +928,10 @@ pub mod agent_s {
         #[doc = ":(@SymmetricKey(KAB), @Agent(A), @Number(NB), @SymmetricKey(K2))"]
         i16: Option<
             Tuple<(
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
                 Agent<<T as Base>::Agent>,
                 Number<<T as Base>::Number>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
+                SymKey<<T as Base>::SymKey>,
             )>,
         >,
         #[doc = "{| :(@SymmetricKey(KAB), @Agent(A), @Number(NB), @SymmetricKey(K2)) |}sk(@Agent(B), #Agent(s))"]
@@ -939,10 +939,10 @@ pub mod agent_s {
             SymEnc<
                 <T as Base>::SymEnc,
                 Tuple<(
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                     Agent<<T as Base>::Agent>,
                     Number<<T as Base>::Number>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
+                    SymKey<<T as Base>::SymKey>,
                 )>,
                 Func<<T as Terms>::User_sk, (Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
             >,
@@ -1088,12 +1088,12 @@ pub mod agent_s {
                 assert_eq!(knowledge.i1, knowledge.i6);
                 knowledge.i7 = Some(m.2);
                 knowledge.i8 = Some(m.3);
-                knowledge.i9 = Some(SymmetricKey(base.generate_sym_key()));
-                knowledge.i10 = Some(Number(base.generate_nonce()));
-                knowledge.i11 = Some(SymmetricKey(base.generate_sym_key()));
+                knowledge.i9 = Some(SymKey(base.gen_sym_key()));
+                knowledge.i10 = Some(Number(base.gen_nonce()));
+                knowledge.i11 = Some(SymKey(base.gen_sym_key()));
                 knowledge.i12 = Some(Tuple((knowledge.i10.clone().unwrap(),)));
                 knowledge.i13 = Some(SymEnc(
-                    base.symmetric_encrypt(
+                    base.sym_encrypt(
                         knowledge.i12.as_ref().unwrap(),
                         knowledge.i11.as_ref().unwrap(),
                     )?,
@@ -1106,7 +1106,7 @@ pub mod agent_s {
                     knowledge.i13.clone().unwrap(),
                 )));
                 knowledge.i15 = Some(SymEnc(
-                    base.symmetric_encrypt(
+                    base.sym_encrypt(
                         knowledge.i14.as_ref().unwrap(),
                         knowledge.i3.as_ref().unwrap(),
                     )?,
@@ -1119,7 +1119,7 @@ pub mod agent_s {
                     knowledge.i11.clone().unwrap(),
                 )));
                 knowledge.i17 = Some(SymEnc(
-                    base.symmetric_encrypt(
+                    base.sym_encrypt(
                         knowledge.i16.as_ref().unwrap(),
                         knowledge.i4.as_ref().unwrap(),
                     )?,

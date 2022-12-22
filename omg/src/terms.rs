@@ -28,7 +28,7 @@ pub struct SymEnc<P, Body, Key>(pub P, pub PhantomData<(Body, Key)>);
 #[serde(bound = "P: serde::Serialize + serde::de::DeserializeOwned")]
 pub struct AsymEnc<P, Body, Key>(pub P, pub PhantomData<(Body, Key)>);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SymmetricKey<S>(pub S);
+pub struct SymKey<S>(pub S);
 
 #[derive(Educe, Serialize, Deserialize)]
 #[educe(Debug(bound = "K: std::fmt::Debug"))]
@@ -36,7 +36,7 @@ pub struct SymmetricKey<S>(pub S);
 #[educe(PartialEq(bound = "K: PartialEq"))]
 #[educe(Eq(bound = "K: Eq"))]
 #[serde(bound = "K: serde::Serialize + serde::de::DeserializeOwned")]
-pub struct AsymmetricKey<K, A>(pub K, pub PhantomData<A>);
+pub struct AsymKey<K, A>(pub K, pub PhantomData<A>);
 #[derive(Educe, Serialize, Deserialize)]
 #[educe(Debug(bound = "S: std::fmt::Debug"))]
 #[educe(Clone(bound = "S: Clone"))]

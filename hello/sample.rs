@@ -260,7 +260,7 @@ mod agent_a {
                 // Retrieve { index: 1, id: InfoId(9) }
                 knowledge.i9 = Some(m1);
                 // DecryptSymmetric { term: InfoId(8), key: InfoId(3), into: InfoId(10) }
-                knowledge.i10 = Some(&base.symmetric_dencrypt(
+                knowledge.i10 = Some(&base.symmetric_decrypt(
                     knowledge.i8.as_ref().unwrap(),
                     knowledge.i3.as_ref().unwrap(),
                 )?);
@@ -283,7 +283,7 @@ mod agent_a {
                 // Retrieve { index: 0, id: InfoId(14) }
                 knowledge.i14 = Some(m0);
                 // DecryptSymmetric { term: InfoId(9), key: InfoId(14), into: InfoId(15) }
-                knowledge.i15 = Some(base.symmetric_dencrypt(
+                knowledge.i15 = Some(base.symmetric_decrypt(
                     knowledge.i9.as_ref().unwrap(),
                     knowledge.i14.as_ref().unwrap(),
                 )?);

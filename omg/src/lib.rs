@@ -3,91 +3,81 @@
 pub mod comm;
 pub mod terms;
 
+use std::fmt::Debug;
+
 pub use comm::Channel;
 
 use anyhow::Result;
+use serde::{de::DeserializeOwned, Serialize};
 
-pub trait Stuff =
-    Clone + std::fmt::Debug + PartialEq + Eq + serde::Serialize + serde::de::DeserializeOwned;
+pub trait Term = Clone + Debug + PartialEq + Eq + Serialize + DeserializeOwned;
 
-pub trait AsymmetricKey<B: Base> {
-    type Inv: AsymmetricKeyInv<B, Inner = Self>;
+pub trait AsymKey<B: Base> {
+    type Inv: AsymKeyInv<B, Inner = Self>;
 }
-pub trait AsymmetricKeyInv<B: Base> {
-    type Inner: AsymmetricKey<B, Inv = Self>;
+pub trait AsymKeyInv<B: Base> {
+    type Inner: AsymKey<B, Inv = Self>;
 }
 
-impl AsymmetricKey<()> for () {
+impl AsymKey<()> for () {
     type Inv = ();
 }
-impl AsymmetricKeyInv<()> for () {
+impl AsymKeyInv<()> for () {
     type Inner = ();
 }
 
-pub trait Base: Sized + std::fmt::Debug {
-    type Agent: Stuff + std::hash::Hash;
-    type SymmetricKey: Stuff;
-    type AsymmetricKey: Stuff + AsymmetricKey<Self>;
-    type AsymmetricKeyInv: Stuff + AsymmetricKeyInv<Self>;
-    type Number: Stuff;
-    type Const: Stuff;
-    type Exp;
-    type AsymEnc: Stuff;
-    type SymEnc: Stuff;
+pub trait Base: Sized {
+    type Agent: Term;
+    type Number: Term;
+    type SymKey: Term;
+    type SymEnc: Term;
+    type AsymKey: Term + AsymKey<Self>;
+    type AsymKeyInv: Term + AsymKeyInv<Self>;
+    type AsymEnc: Term;
 
-    fn symmetric_encrypt<B: serde::Serialize, K: serde::Serialize + std::fmt::Debug>(
+    fn sym_encrypt<B: Serialize, K: Serialize + Debug>(
         &mut self,
         body: &B,
         key: &K,
     ) -> Result<Self::SymEnc>;
-    fn asymmetric_encrypt<B: serde::Serialize>(
-        &mut self,
-        body: &B,
-        key: &Self::AsymmetricKey,
-    ) -> Result<Self::AsymEnc>;
-    fn symmetric_dencrypt<K: serde::Serialize + std::fmt::Debug, P: serde::de::DeserializeOwned>(
+    fn sym_decrypt<K: Serialize + Debug, P: DeserializeOwned>(
         &mut self,
         body: &Self::SymEnc,
         key: &K,
     ) -> Result<P>;
-    fn asymmetric_dencrypt<P: serde::de::DeserializeOwned>(
+    fn asym_encrypt<B: Serialize>(
+        &mut self,
+        body: &B,
+        key: &Self::AsymKey,
+    ) -> Result<Self::AsymEnc>;
+    fn asym_decrypt<P: DeserializeOwned>(
         &mut self,
         body: &Self::AsymEnc,
-        key: &Self::AsymmetricKeyInv,
+        key: &Self::AsymKeyInv,
     ) -> Result<P>;
 
-    fn generate_nonce(&mut self) -> Self::Number;
-    fn generate_sym_key(&mut self) -> Self::SymmetricKey;
+    fn gen_nonce(&mut self) -> Self::Number;
+    fn gen_sym_key(&mut self) -> Self::SymKey;
 }
 
 impl Base for () {
     type Agent = ();
-    type SymmetricKey = ();
-    type AsymmetricKey = ();
-    type AsymmetricKeyInv = ();
     type Number = ();
-    type Const = ();
-    type Exp = ();
-    type AsymEnc = ();
+    type SymKey = ();
     type SymEnc = ();
+    type AsymKey = ();
+    type AsymKeyInv = ();
+    type AsymEnc = ();
 
-    fn symmetric_encrypt<B: serde::Serialize, K: serde::Serialize>(
+    fn sym_encrypt<B: Serialize, K: Serialize>(
         &mut self,
         body: &B,
         key: &K,
     ) -> Result<Self::SymEnc> {
-        todo!()
+        Ok(())
     }
 
-    fn asymmetric_encrypt<B: serde::Serialize>(
-        &mut self,
-        body: &B,
-        key: &Self::AsymmetricKey,
-    ) -> Result<Self::AsymEnc> {
-        todo!()
-    }
-
-    fn symmetric_dencrypt<K: serde::Serialize, P: serde::de::DeserializeOwned>(
+    fn sym_decrypt<K: Serialize, P: DeserializeOwned>(
         &mut self,
         body: &Self::SymEnc,
         key: &K,
@@ -95,19 +85,27 @@ impl Base for () {
         todo!()
     }
 
-    fn asymmetric_dencrypt<P: serde::de::DeserializeOwned>(
+    fn asym_encrypt<B: Serialize>(
+        &mut self,
+        body: &B,
+        key: &Self::AsymKey,
+    ) -> Result<Self::AsymEnc> {
+        Ok(())
+    }
+
+    fn asym_decrypt<P: DeserializeOwned>(
         &mut self,
         body: &Self::AsymEnc,
-        key: &Self::AsymmetricKeyInv,
+        key: &Self::AsymKeyInv,
     ) -> Result<P> {
         todo!()
     }
 
-    fn generate_nonce(&mut self) -> Self::Number {
+    fn gen_nonce(&mut self) -> Self::Number {
         todo!()
     }
 
-    fn generate_sym_key(&mut self) -> Self::SymmetricKey {
+    fn gen_sym_key(&mut self) -> Self::SymKey {
         todo!()
     }
 }

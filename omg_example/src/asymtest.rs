@@ -5,11 +5,11 @@ use omg::{Base, Channel};
 use std::{collections::HashMap, marker::PhantomData};
 pub trait Terms: Base {
     type User_pk: Clone + std::fmt::Debug + serde::Serialize + serde::de::DeserializeOwned;
-    fn pk(&mut self, arg_0: &<Self as Base>::Agent) -> <Self as Base>::AsymmetricKey;
+    fn pk(&mut self, arg_0: &<Self as Base>::Agent) -> <Self as Base>::AsymKey;
 }
 impl Terms for () {
     type User_pk = ();
-    fn pk(&mut self, arg_0: &<Self as Base>::Agent) -> <Self as Base>::AsymmetricKey {}
+    fn pk(&mut self, arg_0: &<Self as Base>::Agent) -> <Self as Base>::AsymKey {}
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde :: Serialize, serde :: Deserialize)]
 pub enum ProtocolAgent {
@@ -30,47 +30,26 @@ pub enum Message<T: Terms> {
 pub struct Initiate<T: Terms>(
     #[doc = "@Agent(A)"] pub Agent<<T as Base>::Agent>,
     #[doc = "@Agent(B)"] pub Agent<<T as Base>::Agent>,
-    #[doc = "pk(@Agent(A))"]
-    pub  AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
-    #[doc = "pk(@Agent(B))"]
-    pub  AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
+    #[doc = "pk(@Agent(A))"] pub AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
+    #[doc = "pk(@Agent(B))"] pub AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
     #[doc = "Inverse(pk(@Agent(A)))"]
-    pub  Inv<
-        <T as Base>::AsymmetricKeyInv,
-        (AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>),
-    >,
+    pub  Inv<<T as Base>::AsymKeyInv, (AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>)>,
 );
-#[doc = "[{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB), { :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))]"]
+#[doc = "[{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))]"]
 #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
 #[serde(bound = "")]
 pub struct M0<T: Terms>(
-    #[doc = "{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB)"]
-    pub  SymEnc<
-        <T as Base>::SymEnc,
-        Tuple<(
-            Agent<<T as Base>::Agent>,
-            Agent<<T as Base>::Agent>,
-            Number<<T as Base>::Number>,
-        )>,
-        SymmetricKey<<T as Base>::SymmetricKey>,
-    >,
-    #[doc = "{ :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))"]
+    #[doc = "{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))"]
     pub  AsymEnc<
         <T as Base>::AsymEnc,
-        Tuple<(
-            Agent<<T as Base>::Agent>,
-            Agent<<T as Base>::Agent>,
-            SymmetricKey<<T as Base>::SymmetricKey>,
-        )>,
-        AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
+        Tuple<(Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
+        AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
     >,
 );
-#[doc = "[@SymmetricKey(KAB), @Number(NA), @Agent(A), @Agent(B)]"]
+#[doc = "[@Agent(A), @Agent(B)]"]
 #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
 #[serde(bound = "")]
 pub struct M1<T: Terms>(
-    #[doc = "@SymmetricKey(KAB)"] pub SymmetricKey<<T as Base>::SymmetricKey>,
-    #[doc = "@Number(NA)"] pub Number<<T as Base>::Number>,
     #[doc = "@Agent(A)"] pub Agent<<T as Base>::Agent>,
     #[doc = "@Agent(B)"] pub Agent<<T as Base>::Agent>,
 );
@@ -123,12 +102,9 @@ pub mod agent_A {
     pub type InitialKnowledge<T> = (
         Agent<<T as Base>::Agent>,
         Agent<<T as Base>::Agent>,
-        AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
-        AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
-        Inv<
-            <T as Base>::AsymmetricKeyInv,
-            (AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>),
-        >,
+        AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
+        AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
+        Inv<<T as Base>::AsymKeyInv, (AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>)>,
     );
     impl<T: Terms> State<T> {
         pub fn init() -> Self {
@@ -153,68 +129,30 @@ pub mod agent_A {
         #[doc = "@Agent(B)"]
         i1: Option<Agent<<T as Base>::Agent>>,
         #[doc = "pk(@Agent(A))"]
-        i2: Option<AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>>,
+        i2: Option<AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>>,
         #[doc = "pk(@Agent(B))"]
-        i3: Option<AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>>,
+        i3: Option<AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>>,
         #[doc = "Inverse(pk(@Agent(A)))"]
         i4: Option<
             Inv<
-                <T as Base>::AsymmetricKeyInv,
-                (AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>),
+                <T as Base>::AsymKeyInv,
+                (AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>),
             >,
         >,
-        #[doc = "@Number(NA)"]
-        i5: Option<Number<<T as Base>::Number>>,
-        #[doc = "@SymmetricKey(KAB)"]
-        i6: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
-        #[doc = ":(@Agent(A), @Agent(B), @Number(NA))"]
-        i7: Option<
-            Tuple<(
-                Agent<<T as Base>::Agent>,
-                Agent<<T as Base>::Agent>,
-                Number<<T as Base>::Number>,
-            )>,
-        >,
-        #[doc = "{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB)"]
-        i8: Option<
-            SymEnc<
-                <T as Base>::SymEnc,
-                Tuple<(
-                    Agent<<T as Base>::Agent>,
-                    Agent<<T as Base>::Agent>,
-                    Number<<T as Base>::Number>,
-                )>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
-            >,
-        >,
-        #[doc = ":(@Agent(A), @Agent(B), @SymmetricKey(KAB))"]
-        i9: Option<
-            Tuple<(
-                Agent<<T as Base>::Agent>,
-                Agent<<T as Base>::Agent>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
-            )>,
-        >,
-        #[doc = "{ :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))"]
-        i10: Option<
+        #[doc = ":(@Agent(A), @Agent(B))"]
+        i5: Option<Tuple<(Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>>,
+        #[doc = "{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))"]
+        i6: Option<
             AsymEnc<
                 <T as Base>::AsymEnc,
-                Tuple<(
-                    Agent<<T as Base>::Agent>,
-                    Agent<<T as Base>::Agent>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
-                )>,
-                AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
+                Tuple<(Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
+                AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
             >,
         >,
-        #[doc = "@SymmetricKey(KAB)"]
-        i11: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
-        #[doc = "@Number(NA)"]
-        i12: Option<Number<<T as Base>::Number>>,
         #[doc = "@Agent(A)"]
-        i13: Option<Agent<<T as Base>::Agent>>,
+        i7: Option<Agent<<T as Base>::Agent>>,
         #[doc = "@Agent(B)"]
-        i14: Option<Agent<<T as Base>::Agent>>,
+        i8: Option<Agent<<T as Base>::Agent>>,
     }
     impl<T: Terms> Default for Knowledge<T> {
         fn default() -> Self {
@@ -228,12 +166,6 @@ pub mod agent_A {
                 i6: None,
                 i7: None,
                 i8: None,
-                i9: None,
-                i10: None,
-                i11: None,
-                i12: None,
-                i13: None,
-                i14: None,
             }
         }
     }
@@ -243,7 +175,7 @@ pub mod agent_A {
     pub enum Ingoing<T: Terms> {
         #[doc = "@Agent(A), @Agent(B), pk(@Agent(A)), pk(@Agent(B)), Inverse(pk(@Agent(A)))"]
         Initiate(Initiate<T>),
-        #[doc = "@SymmetricKey(KAB), @Number(NA), @Agent(A), @Agent(B)"]
+        #[doc = "@Agent(A), @Agent(B)"]
         M1(M1<T>),
     }
     impl<T: Terms> From<Ingoing<T>> for Message<T> {
@@ -267,7 +199,7 @@ pub mod agent_A {
     #[doc = r" Outgoing messages for agent"]
     #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
     pub enum Outgoing<T: Terms> {
-        #[doc = "{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB), { :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))"]
+        #[doc = "{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))"]
         M0(M0<T>),
     }
     impl<T: Terms> From<Outgoing<T>> for Message<T> {
@@ -341,28 +273,13 @@ pub mod agent_A {
                 knowledge.i2 = Some(m.2);
                 knowledge.i3 = Some(m.3);
                 knowledge.i4 = Some(m.4);
-                knowledge.i5 = Some(Number(base.generate_nonce()));
-                knowledge.i6 = Some(SymmetricKey(base.generate_sym_key()));
-                knowledge.i7 = Some(Tuple((
+                knowledge.i5 = Some(Tuple((
                     knowledge.i0.clone().unwrap(),
                     knowledge.i1.clone().unwrap(),
-                    knowledge.i5.clone().unwrap(),
                 )));
-                knowledge.i8 = Some(SymEnc(
-                    base.symmetric_encrypt(
-                        knowledge.i7.as_ref().unwrap(),
-                        knowledge.i6.as_ref().unwrap(),
-                    )?,
-                    PhantomData,
-                ));
-                knowledge.i9 = Some(Tuple((
-                    knowledge.i0.clone().unwrap(),
-                    knowledge.i1.clone().unwrap(),
-                    knowledge.i6.clone().unwrap(),
-                )));
-                knowledge.i10 = Some(AsymEnc(
-                    base.asymmetric_encrypt(
-                        knowledge.i9.as_ref().unwrap(),
+                knowledge.i6 = Some(AsymEnc(
+                    base.asym_encrypt(
+                        knowledge.i5.as_ref().unwrap(),
                         &knowledge.i3.as_ref().unwrap().0,
                     )?,
                     PhantomData,
@@ -370,10 +287,7 @@ pub mod agent_A {
                 Ok(Response {
                     save_connection_as: None,
                     send: SendMessage::Send {
-                        msg: Outgoing::M0(M0(
-                            knowledge.i8.clone().unwrap(),
-                            knowledge.i10.clone().unwrap(),
-                        )),
+                        msg: Outgoing::M0(M0(knowledge.i6.clone().unwrap())),
                         connect: true,
                         to: (ProtocolAgent::B, knowledge.i1.clone().unwrap().0),
                     },
@@ -383,14 +297,10 @@ pub mod agent_A {
             Ingoing::M1(m) => {
                 let scope = tracing::span!(tracing::Level::INFO, stringify!(M1));
                 let _enter = scope.enter();
-                knowledge.i11 = Some(m.0);
-                assert_eq!(knowledge.i6, knowledge.i11);
-                knowledge.i12 = Some(m.1);
-                assert_eq!(knowledge.i5, knowledge.i12);
-                knowledge.i13 = Some(m.2);
-                assert_eq!(knowledge.i0, knowledge.i13);
-                knowledge.i14 = Some(m.3);
-                assert_eq!(knowledge.i1, knowledge.i14);
+                knowledge.i7 = Some(m.0);
+                assert_eq!(knowledge.i0, knowledge.i7);
+                knowledge.i8 = Some(m.1);
+                assert_eq!(knowledge.i1, knowledge.i8);
                 Ok(Response {
                     save_connection_as: None,
                     send: SendMessage::Nothing,
@@ -456,12 +366,9 @@ pub mod agent_B {
     pub type InitialKnowledge<T> = (
         Agent<<T as Base>::Agent>,
         Agent<<T as Base>::Agent>,
-        AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
-        AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
-        Inv<
-            <T as Base>::AsymmetricKeyInv,
-            (AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>),
-        >,
+        AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
+        AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
+        Inv<<T as Base>::AsymKeyInv, (AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>)>,
     );
     impl<T: Terms, F> State<T, F>
     where
@@ -494,68 +401,30 @@ pub mod agent_B {
         #[doc = "@Agent(B)"]
         i1: Option<Agent<<T as Base>::Agent>>,
         #[doc = "pk(@Agent(A))"]
-        i2: Option<AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>>,
+        i2: Option<AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>>,
         #[doc = "pk(@Agent(B))"]
-        i3: Option<AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>>,
+        i3: Option<AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>>,
         #[doc = "Inverse(pk(@Agent(B)))"]
         i4: Option<
             Inv<
-                <T as Base>::AsymmetricKeyInv,
-                (AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>),
+                <T as Base>::AsymKeyInv,
+                (AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>),
             >,
         >,
-        #[doc = "{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB)"]
+        #[doc = "{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))"]
         i5: Option<
-            SymEnc<
-                <T as Base>::SymEnc,
-                Tuple<(
-                    Agent<<T as Base>::Agent>,
-                    Agent<<T as Base>::Agent>,
-                    Number<<T as Base>::Number>,
-                )>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
-            >,
-        >,
-        #[doc = "{ :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))"]
-        i6: Option<
             AsymEnc<
                 <T as Base>::AsymEnc,
-                Tuple<(
-                    Agent<<T as Base>::Agent>,
-                    Agent<<T as Base>::Agent>,
-                    SymmetricKey<<T as Base>::SymmetricKey>,
-                )>,
-                AsymmetricKey<<T as Base>::AsymmetricKey, (Agent<<T as Base>::Agent>)>,
+                Tuple<(Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>,
+                AsymKey<<T as Base>::AsymKey, (Agent<<T as Base>::Agent>)>,
             >,
         >,
-        #[doc = ":(@Agent(A), @Agent(B), @SymmetricKey(KAB))"]
-        i7: Option<
-            Tuple<(
-                Agent<<T as Base>::Agent>,
-                Agent<<T as Base>::Agent>,
-                SymmetricKey<<T as Base>::SymmetricKey>,
-            )>,
-        >,
+        #[doc = ":(@Agent(A), @Agent(B))"]
+        i6: Option<Tuple<(Agent<<T as Base>::Agent>, Agent<<T as Base>::Agent>)>>,
         #[doc = "@Agent(A)"]
+        i7: Option<Agent<<T as Base>::Agent>>,
+        #[doc = "@Agent(B)"]
         i8: Option<Agent<<T as Base>::Agent>>,
-        #[doc = "@Agent(B)"]
-        i9: Option<Agent<<T as Base>::Agent>>,
-        #[doc = "@SymmetricKey(KAB)"]
-        i10: Option<SymmetricKey<<T as Base>::SymmetricKey>>,
-        #[doc = ":(@Agent(A), @Agent(B), @Number(NA))"]
-        i11: Option<
-            Tuple<(
-                Agent<<T as Base>::Agent>,
-                Agent<<T as Base>::Agent>,
-                Number<<T as Base>::Number>,
-            )>,
-        >,
-        #[doc = "@Agent(A)"]
-        i12: Option<Agent<<T as Base>::Agent>>,
-        #[doc = "@Agent(B)"]
-        i13: Option<Agent<<T as Base>::Agent>>,
-        #[doc = "@Number(NA)"]
-        i14: Option<Number<<T as Base>::Number>>,
     }
     impl<T: Terms> Default for Knowledge<T> {
         fn default() -> Self {
@@ -569,12 +438,6 @@ pub mod agent_B {
                 i6: None,
                 i7: None,
                 i8: None,
-                i9: None,
-                i10: None,
-                i11: None,
-                i12: None,
-                i13: None,
-                i14: None,
             }
         }
     }
@@ -582,7 +445,7 @@ pub mod agent_B {
     #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
     #[serde(bound = "")]
     pub enum Ingoing<T: Terms> {
-        #[doc = "{| :(@Agent(A), @Agent(B), @Number(NA)) |}@SymmetricKey(KAB), { :(@Agent(A), @Agent(B), @SymmetricKey(KAB)) }pk(@Agent(B))"]
+        #[doc = "{ :(@Agent(A), @Agent(B)) }pk(@Agent(B))"]
         M0(M0<T>),
     }
     impl<T: Terms> From<Ingoing<T>> for Message<T> {
@@ -604,7 +467,7 @@ pub mod agent_B {
     #[doc = r" Outgoing messages for agent"]
     #[derive(Debug, Clone, serde :: Serialize, serde :: Deserialize)]
     pub enum Outgoing<T: Terms> {
-        #[doc = "@SymmetricKey(KAB), @Number(NA), @Agent(A), @Agent(B)"]
+        #[doc = "@Agent(A), @Agent(B)"]
         M1(M1<T>),
     }
     impl<T: Terms> From<Outgoing<T>> for Message<T> {
@@ -689,31 +552,18 @@ pub mod agent_B {
                 knowledge.i3 = Some(k3);
                 knowledge.i4 = Some(k4);
                 knowledge.i5 = Some(m.0);
-                knowledge.i6 = Some(m.1);
-                knowledge.i7 = Some(base.asymmetric_dencrypt(
-                    &knowledge.i6.as_ref().unwrap().0,
+                knowledge.i6 = Some(base.asym_decrypt(
+                    &knowledge.i5.as_ref().unwrap().0,
                     &knowledge.i4.as_ref().unwrap().0,
                 )?);
-                knowledge.i8 = Some(knowledge.i7.as_ref().unwrap().0 .0.clone());
-                assert_eq!(knowledge.i0, knowledge.i8);
-                knowledge.i9 = Some(knowledge.i7.as_ref().unwrap().0 .1.clone());
-                assert_eq!(knowledge.i1, knowledge.i9);
-                knowledge.i10 = Some(knowledge.i7.as_ref().unwrap().0 .2.clone());
-                knowledge.i11 = Some(base.symmetric_dencrypt(
-                    &knowledge.i5.as_ref().unwrap().0,
-                    knowledge.i10.as_ref().unwrap(),
-                )?);
-                knowledge.i12 = Some(knowledge.i11.as_ref().unwrap().0 .0.clone());
-                assert_eq!(knowledge.i0, knowledge.i12);
-                knowledge.i13 = Some(knowledge.i11.as_ref().unwrap().0 .1.clone());
-                assert_eq!(knowledge.i1, knowledge.i13);
-                knowledge.i14 = Some(knowledge.i11.as_ref().unwrap().0 .2.clone());
+                knowledge.i7 = Some(knowledge.i6.as_ref().unwrap().0 .0.clone());
+                assert_eq!(knowledge.i0, knowledge.i7);
+                knowledge.i8 = Some(knowledge.i6.as_ref().unwrap().0 .1.clone());
+                assert_eq!(knowledge.i1, knowledge.i8);
                 Ok(Response {
                     save_connection_as: Some(ProtocolAgent::A),
                     send: SendMessage::Send {
                         msg: Outgoing::M1(M1(
-                            knowledge.i10.clone().unwrap(),
-                            knowledge.i14.clone().unwrap(),
                             knowledge.i0.clone().unwrap(),
                             knowledge.i1.clone().unwrap(),
                         )),

@@ -1,7 +1,7 @@
 use anyhow::Context;
 use educe::Educe;
 use omg::Base;
-use omg::{AsymmetricKey, AsymmetricKeyInv};
+use omg::{AsymKey, AsymKeyInv};
 use ring::aead;
 use ring::pbkdf2;
 use ring::rand::SystemRandom;
@@ -87,48 +87,34 @@ pub struct RsaPrivateKey<B> {
     marker: PhantomData<B>,
 }
 
-impl<B: Base> AsymmetricKey<B> for RsaPublicKey<B> {
+impl<B: Base> AsymKey<B> for RsaPublicKey<B> {
     type Inv = RsaPrivateKey<B>;
 }
-impl<B: Base> AsymmetricKeyInv<B> for RsaPrivateKey<B> {
+impl<B: Base> AsymKeyInv<B> for RsaPrivateKey<B> {
     type Inner = RsaPublicKey<B>;
 }
 
 impl Base for RingBase {
     type Agent = String;
-    type SymmetricKey = [u8; 32];
-    type AsymmetricKey = RsaPublicKey<Self>;
-    type AsymmetricKeyInv = RsaPrivateKey<Self>;
     type Number = [u8; NUMBER_SIZE];
-    type Exp = ();
-    type Const = ();
-    type AsymEnc = Vec<u8>;
+    type SymKey = [u8; 32];
     type SymEnc = (Self::Number, Vec<u8>);
+    type AsymKey = RsaPublicKey<Self>;
+    type AsymKeyInv = RsaPrivateKey<Self>;
+    type AsymEnc = Vec<u8>;
 
-    fn generate_nonce(&mut self) -> Self::Number {
-        debug!("generate nonce");
-        const L: usize = NUMBER_SIZE.next_power_of_two();
-        let n: [u8; L] = ring::rand::generate(&self.rng).unwrap().expose();
-        n[..NUMBER_SIZE].try_into().unwrap()
-    }
-
-    fn generate_sym_key(&mut self) -> Self::SymmetricKey {
-        debug!("generate sym key");
-        ring::rand::generate(&self.rng).unwrap().expose()
-    }
-
-    fn symmetric_encrypt<B: serde::Serialize, K: serde::Serialize + std::fmt::Debug>(
+    fn sym_encrypt<B: serde::Serialize, K: serde::Serialize + std::fmt::Debug>(
         &mut self,
         body: &B,
         key: &K,
     ) -> anyhow::Result<Self::SymEnc> {
         let mut body = postcard::to_allocvec(body)?;
         let ukey = self.derive_sym_key(&key)?;
-        debug!("symmetric encrypt with key {key:?} ({ukey:?})");
+        debug!("sym encrypt with key {key:?} ({ukey:?})");
 
         let sym_enc = aead::LessSafeKey::new(ukey);
 
-        let nonce_bytes = self.generate_nonce();
+        let nonce_bytes = self.gen_nonce();
         let nonce = aead::Nonce::try_assume_unique_for_key(&nonce_bytes).unwrap();
 
         sym_enc.seal_in_place_append_tag(nonce, aead::Aad::empty(), &mut body)?;
@@ -136,22 +122,7 @@ impl Base for RingBase {
         Ok((nonce_bytes, body))
     }
 
-    fn asymmetric_encrypt<B: serde::Serialize>(
-        &mut self,
-        body: &B,
-        key: &Self::AsymmetricKey,
-    ) -> anyhow::Result<Self::AsymEnc> {
-        let body = postcard::to_allocvec(body)?;
-        let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        let body = key
-            .inner
-            .encrypt(&mut self.rng_2, padding, &body[..])
-            .expect("failed to encrypt");
-
-        Ok(body)
-    }
-
-    fn symmetric_dencrypt<K: serde::Serialize + std::fmt::Debug, P: serde::de::DeserializeOwned>(
+    fn sym_decrypt<K: serde::Serialize + std::fmt::Debug, P: serde::de::DeserializeOwned>(
         &mut self,
         body: &Self::SymEnc,
         key: &K,
@@ -159,7 +130,7 @@ impl Base for RingBase {
         let (nonce, mut body) = body.clone();
 
         let ukey = self.derive_sym_key(&key)?;
-        debug!("symmetric decrypt with key {key:?} ({ukey:?})");
+        debug!("sym decrypt with key {key:?} ({ukey:?})");
         let sym_enc = aead::LessSafeKey::new(ukey);
         let nonce = aead::Nonce::try_assume_unique_for_key(&nonce)
             .with_context(|| "Nonce::try_assume_unique_for_key")
@@ -172,16 +143,45 @@ impl Base for RingBase {
         Ok(postcard::from_bytes(in_out)?)
     }
 
-    fn asymmetric_dencrypt<P: serde::de::DeserializeOwned>(
+    fn asym_encrypt<B: serde::Serialize>(
+        &mut self,
+        body: &B,
+        key: &Self::AsymKey,
+    ) -> anyhow::Result<Self::AsymEnc> {
+        let body = postcard::to_allocvec(body)?;
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let enc_body = key
+            .inner
+            .encrypt(&mut self.rng_2, padding, &body[..])
+            .expect("failed to encrypt");
+
+        debug!("{key:?} and {body:?} produced {enc_body:?}");
+
+        Ok(enc_body)
+    }
+
+    fn asym_decrypt<P: serde::de::DeserializeOwned>(
         &mut self,
         body: &Self::AsymEnc,
-        key: &Self::AsymmetricKeyInv,
+        key: &Self::AsymKeyInv,
     ) -> anyhow::Result<P> {
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
         let body = key
             .inner
             .decrypt(padding, &body)
-            .with_context(|| format!("dencrypting with {key:?}"))?;
+            .with_context(|| format!("decrypting with {key:?}"))?;
         Ok(postcard::from_bytes(&body)?)
+    }
+
+    fn gen_nonce(&mut self) -> Self::Number {
+        debug!("generate nonce");
+        const L: usize = NUMBER_SIZE.next_power_of_two();
+        let n: [u8; L] = ring::rand::generate(&self.rng).unwrap().expose();
+        n[..NUMBER_SIZE].try_into().unwrap()
+    }
+
+    fn gen_sym_key(&mut self) -> Self::SymKey {
+        debug!("generate sym key");
+        ring::rand::generate(&self.rng).unwrap().expose()
     }
 }

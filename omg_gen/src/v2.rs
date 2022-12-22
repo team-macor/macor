@@ -204,7 +204,7 @@ impl Knowledge {
             Term::Variable(_) => Some(Validation::Trust),
             Term::Constant(_) => todo!(),
             Term::Composition { func, args } => match func {
-                // NOTE: We don't validate symmetric encryptions directly,
+                // NOTE: We don't validate sym encryptions directly,
                 // instead we decompose them, and validate their contents.
                 Func::SymEnc => None,
                 Func::AsymEnc => {
@@ -263,7 +263,7 @@ impl Knowledge {
                             };
 
                             self.retrieve_more(
-                                TermOrigin::DecryptSymmetric {
+                                TermOrigin::DecryptSym {
                                     term: i.id,
                                     key: requires[0],
                                     after_msg: msg_nr,
@@ -282,7 +282,7 @@ impl Knowledge {
                             };
 
                             self.retrieve_more(
-                                TermOrigin::DecryptAsymmetric {
+                                TermOrigin::DecryptAsym {
                                     term: i.id,
                                     key: requires[0],
                                     after_msg: msg_nr,
@@ -342,13 +342,13 @@ impl Knowledge {
                         validate(&mut instructions);
                     }
                 }
-                &TermOrigin::DecryptSymmetric {
+                &TermOrigin::DecryptSym {
                     term,
                     key,
                     after_msg,
                 } => {
                     if after_msg == nr {
-                        instructions.push(Instruction::DecryptSymmetric {
+                        instructions.push(Instruction::DecryptSym {
                             term,
                             key,
                             into: i.id,
@@ -356,13 +356,13 @@ impl Knowledge {
                         validate(&mut instructions);
                     }
                 }
-                &TermOrigin::DecryptAsymmetric {
+                &TermOrigin::DecryptAsym {
                     term,
                     key,
                     after_msg,
                 } => {
                     if after_msg == nr {
-                        instructions.push(Instruction::DecryptAsymmetric {
+                        instructions.push(Instruction::DecryptAsym {
                             term,
                             key,
                             into: i.id,
@@ -468,12 +468,12 @@ enum TermOrigin {
         msg_nr: MessageNr,
         index: RegisterIndex,
     },
-    DecryptSymmetric {
+    DecryptSym {
         term: InfoId,
         key: InfoId,
         after_msg: MessageNr,
     },
-    DecryptAsymmetric {
+    DecryptAsym {
         term: InfoId,
         key: InfoId,
         after_msg: MessageNr,
@@ -520,7 +520,7 @@ pub enum Instruction {
         id: InfoId,
     },
     Generate(GenerateTy, InfoId),
-    DecryptSymmetric {
+    DecryptSym {
         term: InfoId,
         key: InfoId,
         into: InfoId,
@@ -557,7 +557,7 @@ pub enum Instruction {
         key: InfoId,
         into: InfoId,
     },
-    DecryptAsymmetric {
+    DecryptAsym {
         term: InfoId,
         key: InfoId,
         into: InfoId,
